@@ -135,7 +135,7 @@ class DiscreteZOO:
     assert number_of_candidates == self._num_to_sample
     losses = []
     for candidate_id in range(number_of_candidates):
-      token_swapped_sentence = self._scatter_helper(
+      token_swapped_sentence = self.scatter_helper(
           sentences, indices, sampled_tokens[:, candidate_id])
       # [batch_size, 1].
       per_item_losses = self._adversarial_loss(sentences,
@@ -143,8 +143,9 @@ class DiscreteZOO:
       losses.append(per_item_losses)
     return tf.concat(losses, -1)
 
-  def _scatter_helper(self, sentences: tf.Tensor, indices: tf.Tensor,
-                      new_values: tf.Tensor) -> tf.Tensor:
+  @staticmethod
+  def scatter_helper(sentences: tf.Tensor, indices: tf.Tensor,
+                     new_values: tf.Tensor) -> tf.Tensor:
     """A helper function to make tensor_scatter_nd_update easier to use.
 
     This function creates a position tensor of size [batch_size, 2] to use with
@@ -205,8 +206,8 @@ class DiscreteZOO:
       # Get displacement vectors from current_embeddings to sampled_embeddings.
       displacement_vectors = sampled_embeddings - current_embeddings
       # Update the sentences with the current replacement_candidates.
-      sentences_with_replacements = self._scatter_helper(
-          sentences, indices, replacement_candidates)
+      sentences_with_replacements = self.scatter_helper(sentences, indices,
+                                                        replacement_candidates)
       # [batch_size, 1].
       current_loss = self._adversarial_loss(sentences_with_replacements,
                                             sentences)

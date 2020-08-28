@@ -1,0 +1,120 @@
+"""Tests for the file attack_loop.py"""
+import tensorflow as tf
+
+from absl import flags
+from absl.testing import absltest
+
+from discretezoo.attack import estimation
+from discretezoo.attack import attack_loop
+
+
+class DiscreteZOOMock(estimation.DiscreteZOO):
+  """A mock optimizer class that creates constant updates for target tokens.
+
+  Attributes:
+    constant_update: The value to update the target tokens with.
+  """
+
+  def __init__(self, constant_update: int):
+    """Initializes the mock optimizer with the constant update value.
+
+    Arguments:
+      constant_update: The value to update the target tokens with.
+    """
+    self._constant_update = constant_update
+    return
+
+  def replace_token(self, sentences: tf.Tensor, indices: tf.Tensor,
+                    iterations: int) -> tf.Tensor:
+    """This function mocks replace_token in DiscreteZOO by returning a constant.
+
+    With the exception of sentences, all arguments to this function are ignored.
+    Sentences is only used to get the batch size for the update we return.
+
+    Arguments:
+      sentences: Sentences is used to calculate the batch size for the update.
+      indices: Indices is the location of the target token in sentences.
+      iterations: This controls how many times a single token can be updated.
+
+    Returns:
+      A tensor <int32>[batch_size, 1] filled with constant_update.
+    """
+    batch_size = sentences.shape[0]
+    update = tf.constant([[self._constant_update]] * batch_size)
+    return update
+
+
+class AttackLoopTest(absltest.TestCase):
+  """This class contains the tests for the function loop in attack_loop.py"""
+
+  def test_attack_loop(self):
+    """Tests that sentences aren't updated further once finished."""
+
+    def count_updated_tokens(adversarial_sentences: tf.Tensor,
+                             original_sentences: tf.Tensor) -> tf.Tensor:
+      target_counts = tf.reshape(tf.range(9, -1, -1), (10, 1))
+      current_counts = tf.reduce_sum(adversarial_sentences,
+                                     axis=-1,
+                                     keepdims=True)
+      return target_counts == current_counts
+
+    optimizer = DiscreteZOOMock(0)
+    sentences = tf.ones((10, 10), dtype=tf.int32)
+    # This sets index 0 to the most importance token and index 9 to the least.
+    importance_scores = tf.stack([tf.range(10, 0, -1)] * 10, axis=0)
+    iterations_per_token = 1
+    max_changes = 10
+    test_adversarial_sentences, test_finished_attacks = attack_loop.loop(
+        sentences, optimizer, importance_scores, early_stopping_criterion,
+        iterations_per_token, max_changes)
+    # Because of the stopping values picked, we will have 9 ones in the first
+    # sentence, 8 ones in the next, and so on. This is an upper triangular
+    # matrix with the diagonal set to 0s.
+    expected_adversarial_sentences = tf.constant(
+        [[0, 1, 1, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+         [0, 0, 0, 1, 1, 1, 1, 1, 1, 1], [0, 0, 0, 0, 1, 1, 1, 1, 1, 1],
+         [0, 0, 0, 0, 0, 1, 1, 1, 1, 1], [0, 0, 0, 0, 0, 0, 1, 1, 1, 1],
+         [0, 0, 0, 0, 0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 0, 0, 0, 0, 1, 1],
+         [0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]])
+    expected_finished_attacks = tf.ones((10, 1), dtype=tf.bool)
+
+    tf.debugging.assert_equal(expected_adversarial_sentences,
+                              test_adversarial_sentences)
+
+    tf.debugging.assert_equal(expected_finished_attacks, test_finished_attacks)
+
+  def test_attack_loop_failed_attack(self):
+    """Tests that the original sentence is returned for failed attacks."""
+
+    def count_updated_tokens(adversarial_sentences: tf.Tensor,
+                             original_sentences: tf.Tensor) -> tf.Tensor:
+      target_counts = tf.constant([[11], [1]], dtype=tf.int32)
+      current_counts = tf.reduce_sum(adversarial_sentences,
+                                     axis=-1,
+                                     keepdims=True)
+      return target_counts == current_counts
+
+    optimizer = DiscreteZOOMock(0)
+    sentences = tf.ones((2, 10), dtype=tf.int32)
+    # This sets index 0 to the most importance token and index 9 to the least.
+    importance_scores = tf.stack([tf.range(10, 0, -1)] * 2, axis=0)
+    iterations_per_token = 1
+    max_changes = 10
+    test_adversarial_sentences, test_finished_attacks = attack_loop.loop(
+        sentences, optimizer, importance_scores, early_stopping_criterion,
+        iterations_per_token, max_changes)
+    # The first sentence is the unsuccessful adversarial attack, where all
+    # tokens are set to 0s and the second sentence is the successful attack
+    # where all tokens but the last are 0s.
+    expected_adversarial_sentences = tf.constant(
+        [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 1]])
+    expected_finished_attacks = tf.constant([[False], [True]])
+
+    tf.debugging.assert_equal(expected_adversarial_sentences,
+                              test_adversarial_sentences)
+
+    tf.debugging.assert_equal(expected_finished_attacks, test_finished_attacks)
+
+
+if __name__ == '__main__':
+  absltest.main()
