@@ -1,3 +1,5 @@
+package(default_visibility = ["//discretezoo:__subpackages__"])
+
 py_library(
   name = "adversarial_hinge",
   srcs = ["adversarial_hinge.py"],
@@ -11,5 +13,21 @@ py_test(
   srcs_version = "PY3",
   deps = [
     ":adversarial_hinge",
+  ]
+)
+
+py_library(
+  name = "semantic_similarity",
+  srcs = ["semantic_similarity.py"],
+  srcs_version = "PY3"
+)
+
+py_test(
+  name = "semantic_similarity_test",
+  srcs = ["semantic_similarity_test.py"],
+  python_version = "PY3",
+  srcs_version = "PY3",
+  deps = [
+    ":semantic_similarity",
   ]
 )

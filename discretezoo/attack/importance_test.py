@@ -42,9 +42,10 @@ class ScorerTest(absltest.TestCase):
 
     sentences = tf.constant([[1, 1, 1, 1, 1], [1, 1, 1, 1, 0], [1, 1, 1, 0, 0],
                              [1, 1, 0, 0, 0], [1, 0, 0, 0, 0]])
-    expected_scores = tf.constant([[5, 5, 5, 5, 5], [4, 4, 4, 4, 0],
-                                   [3, 3, 3, 0, 0], [2, 2, 0, 0, 0],
-                                   [1, 0, 0, 0, 0]])
+    expected_scores = tf.constant(
+        [[5, 5, 5, 5, 5], [4, 4, 4, 4, 0], [3, 3, 3, 0, 0], [2, 2, 0, 0, 0],
+         [1, 0, 0, 0, 0]],
+        dtype=tf.float32)
     test_scores = importance.scorer(sentences, output_difference_fn,
                                     dropper_function)
     tf.debugging.assert_equal(expected_scores, test_scores)

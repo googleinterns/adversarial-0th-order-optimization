@@ -65,7 +65,7 @@ class AttackLoopTest(absltest.TestCase):
     iterations_per_token = 1
     max_changes = 10
     test_adversarial_sentences, test_finished_attacks = attack_loop.loop(
-        sentences, optimizer, importance_scores, early_stopping_criterion,
+        sentences, optimizer, importance_scores, count_updated_tokens,
         iterations_per_token, max_changes)
     # Because of the stopping values picked, we will have 9 ones in the first
     # sentence, 8 ones in the next, and so on. This is an upper triangular
@@ -101,7 +101,7 @@ class AttackLoopTest(absltest.TestCase):
     iterations_per_token = 1
     max_changes = 10
     test_adversarial_sentences, test_finished_attacks = attack_loop.loop(
-        sentences, optimizer, importance_scores, early_stopping_criterion,
+        sentences, optimizer, importance_scores, count_updated_tokens,
         iterations_per_token, max_changes)
     # The first sentence is the unsuccessful adversarial attack, where all
     # tokens are set to 0s and the second sentence is the successful attack

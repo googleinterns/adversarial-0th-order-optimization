@@ -1,3 +1,5 @@
+package(default_visibility = ["//discretezoo:__subpackages__"])
+
 py_library(
   name = "estimation",
   srcs = ["estimation.py"],
@@ -32,9 +34,8 @@ py_test(
 
 py_library(
   name = "sampling",
-  srcs = ["sampling.py"]
-  srcs_version = "PY3",
-  python_version = "PY3"
+  srcs = ["sampling.py"],
+  srcs_version = "PY3"
 )
 
 py_test(
@@ -51,7 +52,7 @@ py_library(
   name = "attack_loop",
   srcs = ["attack_loop.py"],
   srcs_version = "PY3",
-  python_version = "PY3",
+  deps = [":estimation"]
 )
 
 py_test(

@@ -43,7 +43,7 @@ def targeted_loss(probabilities: tf.Tensor,
   other_log_probs = log_probs[class_indices != target_label]
   other_log_probs = tf.reshape(other_log_probs, (batch_size, total_classes - 1))
   max_other_log_probs = tf.reduce_max(other_log_probs, axis=-1, keepdims=True)
-  return tf.math.maximum(target_log_probs - max_other_log_probs + kappa, 0)
+  return tf.math.maximum(max_other_log_probs - target_log_probs + kappa, 0)
 
 
 def untargeted_loss(probabilities: tf.Tensor, true_label: tf.Tensor,

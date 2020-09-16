@@ -60,9 +60,7 @@ class EstimationTest(absltest.TestCase):
     # This creates a matrix with ones on the main diagonal and zeros elsewhere.
     updated_sentences = tf.linalg.diag(updates)
 
-    # We have to create a dummy DiscreteZOO object in order to test the method.
-    test_discrete_zoo = estimation.DiscreteZOO(None, None, None)
-    test_updated_sentences = test_discrete_zoo._scatter_helper(
+    test_updated_sentences = estimation.DiscreteZOO.scatter_helper(
         sentences, indices, updates)
     tf.debugging.assert_equal(test_updated_sentences, updated_sentences)
 

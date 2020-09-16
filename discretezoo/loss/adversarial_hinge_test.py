@@ -128,13 +128,11 @@ class TargetedLossTest(absltest.TestCase):
     tf.debugging.assert_equal(test_loss, tf.constant([kappa]))
 
   def test_targeted_loss_overconfident_model(self):
-    """Test the case where the model is overconfident about the target class."""
+    """Test the case where the model is overconfident about its prediction."""
     target_label = 8
-    max_other_label = 0
-    target_probability = 1.0
+    original_label = 0
     probability_list = [0.0] * 10
-    probability_list[target_label] = target_probability
-    probability_list[max_other_label] = 1 - target_probability
+    probability_list[original_label] = 1.0
     probability_vector = tf.constant([probability_list])
     target_label_vector = tf.constant([target_label], dtype=tf.int32)
 
