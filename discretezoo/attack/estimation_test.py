@@ -24,6 +24,9 @@ class EstimationTest(absltest.TestCase):
                                    [1., 0., 1.], [1., 1., 1.]])
     sentence = tf.constant([[0], [7]], dtype=tf.int32)
     position = tf.constant([[0], [0]], dtype=tf.int32)
+    original_sentence = sentence
+    # Labels are required by DiscreteZOO but unused by our loss function.
+    labels = tf.constant([[0], [0]], dtype=tf.int32)
     # We expect the index 7, because it corresponds to the highest-loss vector.
     expected_replacement = tf.constant([[7], [0]])
 
@@ -32,8 +35,8 @@ class EstimationTest(absltest.TestCase):
       # These are the ids of the tokens that we will "sample".
       return tf.constant([[4, 1], [4, 1]])
 
-    def forward(original_sentence, replacement_sentence):
-      """Our forward function is the l2 difference between the two sentences."""
+    def adversarial_loss(original_sentence, labels, replacement_sentence):
+      """Our loss function is the l2 difference between the two sentences."""
       original = tf.nn.embedding_lookup(test_embeddings, original_sentence)
       replacement = tf.nn.embedding_lookup(test_embeddings,
                                            replacement_sentence)
@@ -43,17 +46,19 @@ class EstimationTest(absltest.TestCase):
     # Create our DiscreteZoo object to perform gradient ascent to maximize loss.
     test_discrete_zoo = estimation.DiscreteZOO(sampler,
                                                test_embeddings,
-                                               forward,
+                                               adversarial_loss,
                                                num_to_sample=2,
                                                reduce_mean=True,
                                                descent=False)
 
-    replacement_token = test_discrete_zoo.replace_token(sentence, position, 2)
+    replacement_token = test_discrete_zoo.replace_token(sentence,
+                                                        original_sentence,
+                                                        labels, position, 2)
     tf.debugging.assert_equal(replacement_token, expected_replacement)
 
   def test_scatter_helper(self):
     sentences = tf.zeros((10, 10))
-    # Our _scatter_helper function expects a shape of [batch_size, 1]
+    # Our scatter_helper function expects a shape of [batch_size, 1]
     indices = tf.expand_dims(tf.range(0, 10, dtype=tf.int32), -1)
     # DiscreteZoo requires the shape [batch_size, 1] but is being bypassed here.
     updates = tf.ones((10,))

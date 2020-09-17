@@ -31,7 +31,8 @@ class DiscreteZOO:
                sampling_strategy: Callable[[tf.Tensor, tf.Tensor, int],
                                            tf.Tensor],
                embeddings: tf.Tensor,
-               adversarial_loss: Callable[[tf.Tensor, tf.Tensor], tf.Tensor],
+               adversarial_loss: Callable[[tf.Tensor, tf.Tensor, tf.Tensor],
+                                          tf.Tensor],
                num_to_sample: int = 1,
                reduce_mean: bool = True,
                descent: bool = True,
@@ -44,8 +45,8 @@ class DiscreteZOO:
       num_to_sample: Integer to control how many samples are needed per estimate
       embeddings: embedding table as a tf.Tensor.
         <float32>[vocab_size, embedding_dim]
-      adversarial_loss: A function that accepts the original sentence and our
-        current sentence and returns a loss per sentence.
+      adversarial_loss: A function that accepts the original sentence, labels
+        and our current sentence and returns a loss per sentence.
       reduce_mean: A boolean that flags how we want to reduce our displacements.
       descent: Boolean flag to determine if we're increasing or decreasing loss.
       norm_embeddings: Boolean flag to determine if embeddings should be normed
@@ -114,13 +115,19 @@ class DiscreteZOO:
     # We need new candidates to be [batch_size, 1] for future scatter updates.
     return tf.expand_dims(new_candidates, -1)
 
-  def _get_losses(self, sentences: tf.Tensor, indices: tf.Tensor,
+  def _get_losses(self, sentences: tf.Tensor, original_sentences: tf.Tensor,
+                  labels: tf.Tensor, indices: tf.Tensor,
                   sampled_tokens: tf.Tensor) -> tf.Tensor:
     """Helper function to loop over sampled tokens and compute loss for each.
 
     Args:
       sentences: A batch of sentences already numericalized.
         <int32>[batch_size, sentence_length]
+      original_sentences: A batch of sentences already numericalized without any
+        altered tokens. <int32>[batch_size, sentence_length]
+      labels: A tensor containing per-example labels for each sentence. The
+        labels are the model's output labels on the original sentences.
+        <int32>[batch_size, 1]
       indices: A vector of indices, one for each sentence, that select which
         token in the sentences should be replaced.
         <int32>[batch_size, 1]
@@ -138,7 +145,7 @@ class DiscreteZOO:
       token_swapped_sentence = self.scatter_helper(
           sentences, indices, sampled_tokens[:, candidate_id])
       # [batch_size, 1].
-      per_item_losses = self._adversarial_loss(sentences,
+      per_item_losses = self._adversarial_loss(original_sentences, labels,
                                                token_swapped_sentence)
       losses.append(per_item_losses)
     return tf.concat(losses, -1)
@@ -173,13 +180,19 @@ class DiscreteZOO:
     new_values = tf.reshape(new_values, (-1,))
     return tf.tensor_scatter_nd_update(sentences, position, new_values)
 
-  def replace_token(self, sentences: tf.Tensor, indices: tf.Tensor,
+  def replace_token(self, sentences: tf.Tensor, original_sentences: tf.Tensor,
+                    labels: tf.Tensor, indices: tf.Tensor,
                     iterations: int) -> tf.Tensor:
     """Replaces token at indexed position in sentences with loss reducing token.
 
     Args:
       sentences: A batch of sentences already numericalized.
         <int32>[batch_size, sentence_length]
+      original_sentences: A batch of sentences already numericalized without any
+        altered tokens. <int32>[batch_size, sentence_length]
+      labels: A tensor containing per-example labels for each sentence. The
+        labels are the model's output labels on the original sentences.
+        <int32>[batch_size, 1]
       indices: A vector of indices, one for each sentence, that select which
         token in the sentences should be replaced.
         <int32>[batch_size, 1]
@@ -209,10 +222,11 @@ class DiscreteZOO:
       sentences_with_replacements = self.scatter_helper(sentences, indices,
                                                         replacement_candidates)
       # [batch_size, 1].
-      current_loss = self._adversarial_loss(sentences_with_replacements,
-                                            sentences)
+      current_loss = self._adversarial_loss(original_sentences, labels,
+                                            sentences_with_replacements)
       # [batch_size, num_to_sample].
-      losses = self._get_losses(sentences, indices, sampled_tokens)
+      losses = self._get_losses(sentences, original_sentences, labels, indices,
+                                sampled_tokens)
       # [batch_size, num_to_sample].
       loss_diff = losses - current_loss
       # norm is the l2 of the displacement_vectors and is

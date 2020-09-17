@@ -52,7 +52,9 @@ py_library(
   name = "attack_loop",
   srcs = ["attack_loop.py"],
   srcs_version = "PY3",
-  deps = [":estimation"]
+  deps = [
+    ":estimation",
+  ]
 )
 
 py_test(

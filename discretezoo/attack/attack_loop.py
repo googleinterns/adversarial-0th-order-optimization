@@ -6,8 +6,8 @@ from typing import Callable, Tuple
 from discretezoo.attack import estimation
 
 
-def loop(sentences: tf.Tensor, optimizer: estimation.DiscreteZOO,
-         token_importance_scores: tf.Tensor,
+def loop(sentences: tf.Tensor, labels: tf.Tensor,
+         optimizer: estimation.DiscreteZOO, token_importance_scores: tf.Tensor,
          early_stopping_criterion: Callable[[tf.Tensor, tf.Tensor], tf.Tensor],
          iterations_per_token: int,
          max_changes: int) -> Tuple[tf.Tensor, tf.Tensor]:
@@ -16,6 +16,9 @@ def loop(sentences: tf.Tensor, optimizer: estimation.DiscreteZOO,
   Args:
     sentences: A tensor containing indices of tokens in the vocab to optimize.
       <int32>[batch_size, sentence_length]
+    labels: A tensor containing per-example labels for each sentence. The labels
+      are the model's output labels on the original sentences.
+      <int32>[batch_size, 1]
     optimizer: An instance of DiscreteZOO that will replace tokens in sentences.
     token_importance_scores: A tensor of token importance scores in sentences.
       <int32>[batch_size, sentence_length]
@@ -36,7 +39,7 @@ def loop(sentences: tf.Tensor, optimizer: estimation.DiscreteZOO,
                             axis=-1,
                             direction='DESCENDING')
   # TODO: Re-evaluate importance after token change instead of it being static.
-
+  original_sentences = tf.identity(sentences)
   sentence_length = sentences.shape[-1]
   # TODO: Consider allowing a token to be updated multiple times, exceeding
   # sentence_length number of changes.
@@ -49,7 +52,8 @@ def loop(sentences: tf.Tensor, optimizer: estimation.DiscreteZOO,
   for target_tokens in range(number_to_change):
     # attack_order[:, target_tokens] is [batch_size,], we need [batch_size, 1]
     indices = tf.expand_dims(attack_order[:, target_tokens], -1)
-    replacement_tokens = optimizer.replace_token(sentences, indices,
+    replacement_tokens = optimizer.replace_token(sentences, original_sentences,
+                                                 labels, indices,
                                                  iterations_per_token)
     adversarial_sentences = estimation.DiscreteZOO.scatter_helper(
         adversarial_sentences, indices, replacement_tokens)

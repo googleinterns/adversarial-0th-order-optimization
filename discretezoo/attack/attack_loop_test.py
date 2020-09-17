@@ -24,7 +24,8 @@ class DiscreteZOOMock(estimation.DiscreteZOO):
     self._constant_update = constant_update
     return
 
-  def replace_token(self, sentences: tf.Tensor, indices: tf.Tensor,
+  def replace_token(self, sentences: tf.Tensor, original_sentences: tf.Tensor,
+                    labels: tf.Tensor, indices: tf.Tensor,
                     iterations: int) -> tf.Tensor:
     """This function mocks replace_token in DiscreteZOO by returning a constant.
 
@@ -33,8 +34,14 @@ class DiscreteZOOMock(estimation.DiscreteZOO):
 
     Arguments:
       sentences: Sentences is used to calculate the batch size for the update.
+      original_sentences: The original sentences before any tokens are updated.
+        Not used here.
+      labels: These are the labels used in the adversarial loss function.
+        Not used here.
       indices: Indices is the location of the target token in sentences.
+        Not used here.
       iterations: This controls how many times a single token can be updated.
+        Not used here.
 
     Returns:
       A tensor <int32>[batch_size, 1] filled with constant_update.
@@ -60,12 +67,14 @@ class AttackLoopTest(absltest.TestCase):
 
     optimizer = DiscreteZOOMock(0)
     sentences = tf.ones((10, 10), dtype=tf.int32)
+    # Labels are required for the attack_loop but ignored by DiscreteZOOMock.
+    labels = tf.zeros((10, 1), dtype=tf.int32)
     # This sets index 0 to the most importance token and index 9 to the least.
     importance_scores = tf.stack([tf.range(10, 0, -1)] * 10, axis=0)
     iterations_per_token = 1
     max_changes = 10
     test_adversarial_sentences, test_finished_attacks = attack_loop.loop(
-        sentences, optimizer, importance_scores, count_updated_tokens,
+        sentences, labels, optimizer, importance_scores, count_updated_tokens,
         iterations_per_token, max_changes)
     # Because of the stopping values picked, we will have 9 ones in the first
     # sentence, 8 ones in the next, and so on. This is an upper triangular
@@ -96,12 +105,14 @@ class AttackLoopTest(absltest.TestCase):
 
     optimizer = DiscreteZOOMock(0)
     sentences = tf.ones((2, 10), dtype=tf.int32)
+    # Labels are required for the attack_loop but ignored by DiscreteZOOMock.
+    labels = tf.zeros((10, 1), dtype=tf.int32)
     # This sets index 0 to the most importance token and index 9 to the least.
     importance_scores = tf.stack([tf.range(10, 0, -1)] * 2, axis=0)
     iterations_per_token = 1
     max_changes = 10
     test_adversarial_sentences, test_finished_attacks = attack_loop.loop(
-        sentences, optimizer, importance_scores, count_updated_tokens,
+        sentences, labels, optimizer, importance_scores, count_updated_tokens,
         iterations_per_token, max_changes)
     # The first sentence is the unsuccessful adversarial attack, where all
     # tokens are set to 0s and the second sentence is the successful attack
