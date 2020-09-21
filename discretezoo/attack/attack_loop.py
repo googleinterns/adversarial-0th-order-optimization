@@ -57,8 +57,7 @@ def loop(sentences: tf.Tensor, labels: tf.Tensor,
                                                  iterations_per_token)
     adversarial_sentences = estimation.DiscreteZOO.scatter_helper(
         adversarial_sentences, indices, replacement_tokens)
-    stoppable_attacks = early_stopping_criterion(adversarial_sentences,
-                                                 sentences)
+    stoppable_attacks = early_stopping_criterion(adversarial_sentences, labels)
     if tf.reduce_any(stoppable_attacks):
       unfinished_attacks = tf.logical_not(finished_attacks)
       newly_finished_attacks = tf.logical_and(unfinished_attacks,

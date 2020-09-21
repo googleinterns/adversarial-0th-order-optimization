@@ -19,8 +19,9 @@ class EmbeddedCosineDistance:
       embeddings: A tensor containing an embedding for each index in vocab.
         <float32>[vocab_size, embedding_dimension]
     """
-    assert embeddings.ndim == 2, ('Embeddings are expected to have 2 dimensions'
-      f' but you passed a tensor with {embeddings.ndim}.')
+    assert embeddings.ndim == 2, (
+        'Embeddings are expected to have 2 dimensions'
+        f' but you passed a tensor with {embeddings.ndim}.')
     self._embeddings = embeddings
 
   def __call__(self, original_sentences: tf.Tensor,
@@ -81,8 +82,9 @@ class EmbeddedEuclideanDistance:
       reduce_mean: This boolean flag signals how embedded sentences will be
         reduced to a single vector. True for mean, False for sum.
     """
-    assert embeddings.ndim == 2, ('Embeddings are expected to have 2 dimensions'
-      f' but you passed a tensor with {embeddings.ndim}.')
+    assert embeddings.ndim == 2, (
+        'Embeddings are expected to have 2 dimensions'
+        f' but you passed a tensor with {embeddings.ndim}.')
     self._embeddings = embeddings
     self._reduce_mean = reduce_mean
 
