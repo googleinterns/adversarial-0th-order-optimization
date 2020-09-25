@@ -53,8 +53,11 @@ class ModelCallable:
       # pytype: disable=attribute-error
       numeric_batch = sentences.numpy().tolist()
       # pytype: enable=attribute-error
-      token_batch = [[self._vocab[index]
-                      for index in sentence]
+      token_batch = [[
+          self._vocab[index]
+          for index in sentence
+          if index is not FLAGS.padding_index
+      ]
                      for sentence in numeric_batch]
       sentences = [self._detokenizer(sentence) for sentence in token_batch]
 
@@ -62,9 +65,13 @@ class ModelCallable:
       # Assert that sentences is a non-empty list of strings.
       assert len(sentences) >= 1 and isinstance(sentences[0], str), \
         "Sentences must be a list of strings if using a tokenizer."
-      sentences = self._model_tokenizer(sentences, return_tensors='tf')
-    model_output = self._model(sentences, return_dict=True)
-    logits = model_output['logits']
+      sentences = self._model_tokenizer(sentences,
+                                        return_tensors='tf',
+                                        padding=True,
+                                        truncation=True)
+    model_output = self._model(sentences)
+    # Transformers raises error when return_dict=True, output is now a tuple.
+    logits = model_output[0]
     probabilities = tf.nn.softmax(logits, axis=-1)
     return probabilities
 
@@ -99,9 +106,9 @@ class EarlyStopping:
     adversarial_probabilities = self._model_fun(adversarial_sentences)
     adversarial_labels = tf.argmax(adversarial_probabilities,
                                    axis=-1,
-                                   output_dtype=labels.dtype)
-    adversarial_labels = tf.reshape(adversarial_labels, (-1, 1))
-    return adversarial_labels != labels
+                                   output_type=labels.dtype)
+    successful_attacks = adversarial_labels != labels
+    return tf.expand_dims(successful_attacks, 1)
 
 
 class OutputDifference:
@@ -232,7 +239,6 @@ def load_embeddings(
   embeddings_matrix = tf.constant(embeddings_csv, dtype=tf.float32)
   with tf.io.gfile.GFile(vocab_path) as vocab_file:
     vocab = [line.strip() for line in vocab_file]
-
   indices = range(len(vocab))
   token_to_id = dict(zip(vocab, indices))
   return embeddings_matrix, token_to_id, vocab
