@@ -1,9 +1,10 @@
+import csv
+from typing import Callable, Tuple, Dict, List
+
 import tensorflow as tf
 import transformers
 import pandas as pd
-import csv
 from discretezoo.loss import semantic_similarity, adversarial_hinge
-from typing import Union, Callable, Tuple, Dict, List
 
 
 class ModelCallable:
@@ -14,7 +15,8 @@ class ModelCallable:
                model_name: str,
                vocab: List[str],
                detokenizer: Callable[[List[str]], str],
-               include_tokenizer: bool = False):
+               include_tokenizer: bool = False,
+               padding_index: int = 0):
     """Initializes ModelCallable with the model and, optionally, its tokenizer.
 
     Arguments:
@@ -24,6 +26,7 @@ class ModelCallable:
       detokenizer: A callable that converts a list of tokens back into a string.
       include_tokenizer: A boolean that flags whether or not to include the
         tokenizer before calling the model.
+      padding_index: An integer that is the index of the padding token in vocab.
     """
     self._model = transformers.TFBertForSequenceClassification.from_pretrained(
         model_name)
@@ -32,11 +35,36 @@ class ModelCallable:
           model_name)
     else:
       self._model_tokenizer = None
-
     self._vocab = vocab
     self._detokenizer = detokenizer
+    self.query_count = None
+    self._padding_index = padding_index
 
-  def __call__(self, sentences: Union[List[str], tf.Tensor]) -> tf.Tensor:
+  def reset_query_tracking(self, batch: tf.Tensor) -> None:
+    """Re-initializes the query tracking vector with a zero vector.
+
+    Arguments:
+      batch: A batch of sentences. <int32>[batch_size, sentence_length]
+    """
+    self.query_count = tf.zeros((batch.shape[0],), dtype=tf.int64)
+
+  def increment_query_count(self, batch: tf.Tensor) -> None:
+    """For every sentence that isn't only padding tokens, increments the count.
+
+    Arguments:
+      batch: A batch of sentences, where some sentences may only be the padding
+        token. This indicates that the sentence was removed inside attack loop.
+        <int32>[batch_size, sentence_length]
+    """
+    is_not_padding_tokens = batch != self._padding_index
+    is_not_empty_sentences = tf.math.reduce_any(is_not_padding_tokens, axis=-1)
+    self.query_count += tf.cast(is_not_empty_sentences, tf.int64)
+
+  @property
+  def get_query_count(self) -> tf.Tensor:
+    return self.query_count
+
+  def __call__(self, sentences: tf.Tensor) -> tf.Tensor:
     """This optionally calls the tokenizer and passes sentences to the model.
 
     Arguments:
@@ -47,19 +75,21 @@ class ModelCallable:
       A tensor of probabilities for each item in the batch.
         <float32>[batch_size, number_of_classes]
     """
-    if isinstance(sentences, tf.Tensor):
-      # pytype complains that List doesn't have numpy as a method. Checking that
-      # it's a tensor first means that is not a problem.
-      # pytype: disable=attribute-error
-      numeric_batch = sentences.numpy().tolist()
-      # pytype: enable=attribute-error
-      token_batch = [[
+
+    if self.query_count is None:
+      self.reset_query_tracking(sentences)
+    self.increment_query_count(sentences)
+
+    numeric_batch = sentences.numpy().tolist()
+    token_batch = []
+    for example in numeric_batch:
+      token_batch.append([
           self._vocab[index]
-          for index in sentence
-          if index is not FLAGS.padding_index
-      ]
-                     for sentence in numeric_batch]
-      sentences = [self._detokenizer(sentence) for sentence in token_batch]
+          for index in example
+          if index != self._padding_index
+      ])
+
+    sentences = [self._detokenizer(sentence) for sentence in token_batch]
 
     if self._model_tokenizer:
       # Assert that sentences is a non-empty list of strings.
@@ -160,7 +190,8 @@ class AdversarialLoss:
                use_cosine: bool,
                embeddings: tf.Tensor,
                interpolation: float = 1.0,
-               kappa: float = 0.0):
+               kappa: float = 0.0,
+               tensorboard_logging: bool = False):
     """Initializes AdversarialLoss with parameters needed for loss calculation.
 
     Arguments:
@@ -174,6 +205,8 @@ class AdversarialLoss:
         distance to the loss.
       kappa: A float that controls how certain a model needs to be about the
         adversarial class before achieving zero loss.
+      tensorboard_logging: A boolean that controls if loss values are written
+        to tensorboard.
     """
     if use_cosine:
       distance_object = semantic_similarity.EmbeddedCosineDistance(embeddings)
@@ -186,6 +219,7 @@ class AdversarialLoss:
     self._model_fun = model_fun
     self._interpolation = interpolation
     self._kappa = kappa
+    self._tensorboard_logging = tensorboard_logging
 
   def __call__(self, original_sentences: tf.Tensor, labels: tf.Tensor,
                adversarial_sentences: tf.Tensor) -> tf.Tensor:
@@ -210,6 +244,13 @@ class AdversarialLoss:
     adversarial_probabilities = self._model_fun(adversarial_sentences)
     loss = self._loss_fun(adversarial_probabilities, labels, self._kappa)
     distance = self._distance_object(original_sentences, adversarial_sentences)
+    if self._tensorboard_logging:
+      tf.summary.histogram("Hinge Loss",
+                           loss,
+                           step=tf.summary.experimental.get_step())
+      tf.summary.histogram("Semantic Distance",
+                           distance,
+                           step=tf.summary.experimental.get_step())
     return loss + (self._interpolation * distance)
 
 
@@ -223,8 +264,9 @@ def load_embeddings(
   https://www.tensorflow.org/tutorials/text/word_embeddings#retrieve_the_learned_embeddings
 
   Arguments:
-    path: A string containing the path of a tsv file with an embedding per line.
-    vocab: A string containing the path of a text file with a token per line.
+    embeddings_path: A string containing the path to a tsv file with an
+      embedding per line.
+    vocab_path: A string containing the path to a file with one token per line.
 
   Returns:
     embeddings: A tensor containing all of the embeddings.
@@ -235,7 +277,8 @@ def load_embeddings(
   with tf.io.gfile.GFile(embeddings_path) as embeddings_file:
     embeddings_csv = pd.read_csv(embeddings_file,
                                  quoting=csv.QUOTE_NONE,
-                                 sep='\t')
+                                 sep='\t',
+                                 header=None)
   embeddings_matrix = tf.constant(embeddings_csv, dtype=tf.float32)
   with tf.io.gfile.GFile(vocab_path) as vocab_file:
     vocab = [line.strip() for line in vocab_file]

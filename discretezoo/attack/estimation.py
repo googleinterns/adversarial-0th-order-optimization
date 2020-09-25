@@ -1,7 +1,8 @@
 """Estimation contains a class that estimates gradients in discrete space."""
 
 import tensorflow as tf
-from typing import Callable
+from typing import Callable, List
+from absl import logging
 
 
 class DiscreteZOO:
@@ -36,7 +37,8 @@ class DiscreteZOO:
                num_to_sample: int = 1,
                reduce_mean: bool = True,
                descent: bool = True,
-               norm_embeddings: bool = False):
+               norm_embeddings: bool = False,
+               vocab: List[str] = None):
     """Initializes DiscreteZOO with the information needed for our attack.
 
     Args:
@@ -59,6 +61,7 @@ class DiscreteZOO:
     self._reduce_mean = reduce_mean
     self._descent = descent
     self._norm_embeddings = norm_embeddings
+    self._vocab = vocab
 
     if self._norm_embeddings:
       self._embeddings = self._embeddings / tf.expand_dims(
@@ -109,6 +112,13 @@ class DiscreteZOO:
     # similarities by the similarity of the current tokens.
     score_diff = displacement_token_similarities - \
       displacement_to_original_similarity
+    # Log the k top scoring replacement tokens.
+    if self._vocab:
+      top_k_indices = tf.nn.top_k(score_diff, k=5)[1].numpy().tolist()
+      top_k_tokens = []
+      for example in top_k_indices:
+        top_k_tokens.append([self._vocab[index] for index in example])
+      logging.debug("Top K tokens in discretization:\n %s", top_k_tokens)
     # new_candidates are [batch_size,] and are vocab items most similar to
     # displacement vectors after subtracting the scores of the current tokens.
     new_candidates = tf.argmax(score_diff, axis=-1, output_type=tf.int32)
@@ -212,6 +222,15 @@ class DiscreteZOO:
       sampled_tokens = self._sampling_strategy(replacement_candidates,
                                                self._embeddings,
                                                self._num_to_sample)
+      # Log the tokens we sample for debugging purposes.
+      if self._vocab:
+        sampled_tokens_list = sampled_tokens.numpy().tolist()
+        sampled_tokens_strings = []
+        for example in sampled_tokens_list:
+          sampled_tokens_strings.append(
+              [self._vocab[index] for index in example])
+        logging.debug('Tokens sampled in replace_token: \n%s',
+                      sampled_tokens_strings)
       # [batch_size, num_to_sample, emb_dim].
       sampled_embeddings = self._embedding_lookup(sampled_tokens)
       # [batch_size, 1, emb_dim].

@@ -1,7 +1,8 @@
 """Attack loop that optimizes multiple tokens in order of descending importance.
 """
-import tensorflow as tf
 from typing import Callable, Tuple
+
+import tensorflow as tf
 
 from discretezoo.attack import estimation
 
@@ -67,9 +68,9 @@ def loop(sentences: tf.Tensor,
   for target_tokens in range(max_tokens_to_change):
     # attack_order[:, target_tokens] is [batch_size,], we need [batch_size, 1]
     indices = tf.expand_dims(attack_order[:, target_tokens], -1)
-    replacement_tokens = optimizer.replace_token(sentences, original_sentences,
-                                                 labels, indices,
-                                                 iterations_per_token)
+    replacement_tokens = optimizer.replace_token(adversarial_sentences,
+                                                 original_sentences, labels,
+                                                 indices, iterations_per_token)
     adversarial_sentences = estimation.DiscreteZOO.scatter_helper(
         adversarial_sentences, indices, replacement_tokens)
     finished_attacks = early_stopping_criterion(adversarial_sentences, labels)
@@ -90,8 +91,8 @@ def loop(sentences: tf.Tensor,
       stopped_attacks_storage = tf.where(newly_stopped_attacks,
                                          adversarial_sentences,
                                          stopped_attacks_storage)
-      # Set adversarial_sentences to 0s where newly_finished_attacks is true.
-      adversarial_sentences = tf.where(newly_stopped_attacks, 0,
+      # Set adversarial_sentences to padding if stopped_attacks is true.
+      adversarial_sentences = tf.where(stopped_attacks, padding_index,
                                        adversarial_sentences)
     if tf.reduce_all(successful_attacks):
       # If they've all finished, we can return stopped_attacks.

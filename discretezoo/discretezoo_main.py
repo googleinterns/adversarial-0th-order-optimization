@@ -1,6 +1,8 @@
 import datetime
 import os
 import itertools
+import csv
+from typing import List
 
 from absl import app
 from absl import flags
@@ -14,8 +16,6 @@ from nltk.tokenize import treebank
 
 from discretezoo import attack_setup
 from discretezoo.attack import importance, attack_loop, estimation, sampling
-
-from typing import List
 
 FLAGS = flags.FLAGS
 # Target model settings.
@@ -89,15 +89,19 @@ flags.DEFINE_float(
     0.0,
     'Controls how confident the model should be about the adversarial label.',
     lower_bound=0.0)
-
-# Logging Settings
+# Logging
 flags.DEFINE_string('output_file', None,
                     'The output file to write adversarial examples to.')
-flags.DEFINE_string('tensorboard_dir', None,
+flags.DEFINE_string('tensorboard_logdir', None,
                     'The output directory to write tensorboard logs to.')
 
 flags.mark_flags_as_required(
     ['model', 'embeddings_file', 'vocab_file', 'dataset', 'output_file'])
+
+TSV_HEADER = [
+    'true_label', 'predicted_label', 'label_flipped', 'query_count',
+    'original_sentence', 'adversarial_sentence'
+]
 
 
 def tokenize_sentences(text_list: List[str]) -> List[List[str]]:
@@ -109,7 +113,7 @@ def tokenize_sentences(text_list: List[str]) -> List[List[str]]:
   the sentences together to get a single list of tokens.
 
   Arguments:
-    test_list: A list of strings where each string is a text possibly containing
+    text_list: A list of strings where each string is a text possibly containing
       multiple sentences.
 
   Returns:
@@ -132,28 +136,38 @@ def tokenize_sentences(text_list: List[str]) -> List[List[str]]:
 def main(argv):
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
-  tokenizer = treebank.TreebankWordTokenizer()
+  logging.get_absl_handler().use_absl_log_file()
+
+  logging.info('Writing output to: %s', FLAGS.output_file)
+
   detokenizer = treebank.TreebankWordDetokenizer()
 
-  if FLAGS.tensorboard_dir:
+  if FLAGS.tensorboard_logdir:
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    summary_writer = tf.summary.create_file_writer(
-        os.path.join(FLAGS.tensorboard_dir, current_time))
+    tensorboard_path = os.path.join(FLAGS.tensorboard_logdir, current_time)
+    summary_writer = tf.summary.create_file_writer(tensorboard_path)
+    logging.info('Writing tensorboard logs to %s', tensorboard_path)
+  else:
+    summary_writer = tf.summary.create_noop_writer()
 
   embeddings, token_to_id, vocab = attack_setup.load_embeddings(
       FLAGS.embeddings_file, FLAGS.vocab_file)
+
+  tensorboard_logging = FLAGS.tensorboard_logdir is not None
 
   model_fun = attack_setup.ModelCallable(
       FLAGS.model,
       vocab,
       detokenizer.detokenize,
-      include_tokenizer=FLAGS.include_tokenizer)
+      include_tokenizer=FLAGS.include_tokenizer,
+      padding_index=FLAGS.padding_index)
   adversarial_loss = attack_setup.AdversarialLoss(
       model_fun=model_fun,
       use_cosine=FLAGS.semantic_similarity,
       embeddings=embeddings,
       interpolation=FLAGS.interpolation,
-      kappa=FLAGS.kappa)
+      kappa=FLAGS.kappa,
+      tensorboard_logging=tensorboard_logging)
   output_difference = attack_setup.OutputDifference(model_fun)
   early_stopping_criterion = attack_setup.EarlyStopping(model_fun)
 
@@ -176,17 +190,28 @@ def main(argv):
                                      norm_embeddings=FLAGS.normalize_embeddings,
                                      vocab=vocab)
 
-  with tf.io.gfile.GFile(FLAGS.output_file, 'w') as output_file:
+  with tf.io.gfile.GFile(FLAGS.output_file,
+                         'w') as output_file, summary_writer.as_default():
+    tsv_output = csv.writer(output_file,
+                            delimiter='\t',
+                            quoting=csv.QUOTE_NONE,
+                            escapechar='\\')
+    tsv_output.writerow(TSV_HEADER)
     examples_attacked = 0
     total_successes = 0
-    for batch in tqdm.tqdm(batched_dataset, desc='Attack Progress:'):
+    for step, batch in enumerate(
+        tqdm.tqdm(batched_dataset, desc='Attack Progress:')):
+      tf.summary.experimental.set_step(step)
       if examples_attacked >= FLAGS.num_examples and FLAGS.num_examples != 0:
         break
       text_batch = batch['sentence'].numpy().tolist()
+      original_labels = batch['label']
       # Tensorflow Datasets saves text as bytes.
       text_batch = [text.decode('utf-8') for text in text_batch]
       # Pre-process the batch of sentences into a numerical tensor.
       tokenized_text_batch = tokenize_sentences(text_batch)
+      # Log original tokenized texts.
+      logging.debug("Original sentences: \n%s", tokenized_text_batch)
       numericalized_batch = []
       for tokenized_text in tokenized_text_batch:
         numericalized_text = [
@@ -197,6 +222,7 @@ def main(argv):
       ragged_tensor_batch = tf.ragged.constant(numericalized_batch,
                                                dtype=tf.int32)
       tensor_batch = ragged_tensor_batch.to_tensor(FLAGS.padding_index)
+      model_fun.reset_query_tracking(tensor_batch)
       model_predicted_labels = tf.argmax(model_fun(tensor_batch),
                                          axis=-1,
                                          output_type=tf.int32)
@@ -220,9 +246,19 @@ def main(argv):
           detokenizer.detokenize(tokens)
           for tokens in adversarial_sentences_tokens
       ]
-      adversarial_sentences_joined = '\n'.join(
-          adversarial_sentences_strings) + '\n'
-      output_file.write(adversarial_sentences_joined)
+      is_padding = adversarial_sentences == FLAGS.padding_index
+      padding_per_sentence = tf.reduce_sum(tf.cast(is_padding, tf.int64),
+                                           axis=-1)
+      # TODO: Come up with a less hack-y way to ignore queries in importance
+      # scoring for padding tokens.
+      query_count = model_fun.query_count - padding_per_sentence
+      query_count = query_count.numpy().tolist()
+      tsv_data = zip(original_labels.numpy().tolist(),
+                     model_predicted_labels.numpy().tolist(),
+                     is_finished_attacks.numpy().tolist(), query_count,
+                     text_batch, adversarial_sentences_strings)
+      tsv_output.writerows(tsv_data)
+
       total_successes += tf.reduce_sum(tf.cast(is_finished_attacks,
                                                tf.int32)).numpy()
       examples_attacked = examples_attacked + tensor_batch.shape[0]
