@@ -34,6 +34,19 @@ class SemanticSimilarityTest(absltest.TestCase):
       cosine_distance_object = semantic_similarity.EmbeddedCosineDistance(
           embeddings)
 
+  def test_cosine_distance_output_shapes(self):
+    # Create an embedding matrix with 10 vocab items and dimension 5.
+    embeddings = tf.random.uniform((10, 5))
+
+    adversarial_sentences = tf.random.uniform((4, 6), maxval=10, dtype=tf.int32)
+    original_sentences = tf.random.uniform((4, 6), maxval=10, dtype=tf.int32)
+
+    distance_object = semantic_similarity.EmbeddedCosineDistance(embeddings)
+
+    expected_shape = (4, 1)
+    distance = distance_object(original_sentences, adversarial_sentences)
+    tf.debugging.assert_shapes([(distance, expected_shape)])
+
   def test_euclidean_distance_sum_reduction(self):
     """Tests euclidean distance between two sentences."""
     embeddings = tf.expand_dims(tf.range(0, 10, dtype=tf.float32), -1)
@@ -65,6 +78,20 @@ class SemanticSimilarityTest(absltest.TestCase):
     with self.assertRaises(AssertionError):
       distance_object = semantic_similarity.EmbeddedEuclideanDistance(
           embeddings)
+
+  def test_euclidean_distance_output_shapes(self):
+    # Create an embedding matrix with 10 vocab items and dimension 5.
+    embeddings = tf.random.uniform((10, 5))
+
+    adversarial_sentences = tf.random.uniform((4, 6), maxval=10, dtype=tf.int32)
+    original_sentences = tf.random.uniform((4, 6), maxval=10, dtype=tf.int32)
+
+    distance_object = semantic_similarity.EmbeddedEuclideanDistance(
+        embeddings, reduce_mean=True)
+
+    expected_shape = (4, 1)
+    distance = distance_object(original_sentences, adversarial_sentences)
+    tf.debugging.assert_shapes([(distance, expected_shape)])
 
 
 if __name__ == '__main__':

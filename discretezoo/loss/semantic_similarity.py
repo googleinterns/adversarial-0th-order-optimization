@@ -60,7 +60,7 @@ class EmbeddedCosineDistance:
     # instead of -1, which is helpful in later loss computation.
     distance = 1 + tf.keras.losses.cosine_similarity(
         original_sentences_reduced, adversarial_sentences_reduced)
-    return distance
+    return tf.expand_dims(distance, 1)
 
 
 class EmbeddedEuclideanDistance:
