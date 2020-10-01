@@ -28,6 +28,7 @@ def loop(sentences: tf.Tensor, labels: tf.Tensor,
     iterations_per_token: A limit for the loop inside the optimizer, how many
       times a token can be updated.
     max_changes: An upper limit on how many tokens per sentence can be changed.
+      If max_changes is 0, all tokens in the sentence are able to be changed.
 
   Returns:
     adversarial_sentences: An <int32>[batch_size, sentence_length] tensor of
@@ -43,7 +44,11 @@ def loop(sentences: tf.Tensor, labels: tf.Tensor,
   sentence_length = sentences.shape[-1]
   # TODO: Consider allowing a token to be updated multiple times, exceeding
   # sentence_length number of changes.
-  number_to_change = min(sentence_length, max_changes)
+  if max_changes == 0:
+    number_to_change = sentence_length
+  else:
+    number_to_change = min(sentence_length, max_changes)
+
   adversarial_sentences = sentences
   # Sentinel value to keep track of which sentences don't need to be optimized.
   finished_attacks = tf.zeros((sentences.shape[0], 1), dtype=tf.bool)
