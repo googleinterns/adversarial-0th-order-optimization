@@ -1,7 +1,6 @@
 """Tests for the file attack_loop.py"""
 import tensorflow as tf
 
-from absl import flags
 from absl.testing import absltest
 
 from discretezoo.attack import estimation
@@ -58,7 +57,7 @@ class AttackLoopTest(absltest.TestCase):
     """Tests that sentences aren't updated further once finished."""
 
     def count_updated_tokens(adversarial_sentences: tf.Tensor,
-                             original_sentences: tf.Tensor) -> tf.Tensor:
+                             labels: tf.Tensor) -> tf.Tensor:
       target_counts = tf.reshape(tf.range(9, -1, -1), (10, 1))
       current_counts = tf.reduce_sum(adversarial_sentences,
                                      axis=-1,
@@ -74,8 +73,14 @@ class AttackLoopTest(absltest.TestCase):
     iterations_per_token = 1
     max_changes = 10
     test_adversarial_sentences, test_finished_attacks = attack_loop.loop(
-        sentences, labels, optimizer, importance_scores, count_updated_tokens,
-        iterations_per_token, max_changes)
+        sentences,
+        labels,
+        optimizer,
+        importance_scores,
+        count_updated_tokens,
+        iterations_per_token,
+        max_changes,
+        padding_index=2)
     # Because of the stopping values picked, we will have 9 ones in the first
     # sentence, 8 ones in the next, and so on. This is an upper triangular
     # matrix with the diagonal set to 0s.
@@ -93,10 +98,10 @@ class AttackLoopTest(absltest.TestCase):
     tf.debugging.assert_equal(expected_finished_attacks, test_finished_attacks)
 
   def test_attack_loop_failed_attack(self):
-    """Tests that the original sentence is returned for failed attacks."""
+    """Tests that the adversarial sentence is returned for failed attacks."""
 
     def count_updated_tokens(adversarial_sentences: tf.Tensor,
-                             original_sentences: tf.Tensor) -> tf.Tensor:
+                             labels: tf.Tensor) -> tf.Tensor:
       target_counts = tf.constant([[11], [1]], dtype=tf.int32)
       current_counts = tf.reduce_sum(adversarial_sentences,
                                      axis=-1,
@@ -106,14 +111,20 @@ class AttackLoopTest(absltest.TestCase):
     optimizer = DiscreteZOOMock(0)
     sentences = tf.ones((2, 10), dtype=tf.int32)
     # Labels are required for the attack_loop but ignored by DiscreteZOOMock.
-    labels = tf.zeros((10, 1), dtype=tf.int32)
+    labels = tf.zeros((2, 1), dtype=tf.int32)
     # This sets index 0 to the most importance token and index 9 to the least.
     importance_scores = tf.stack([tf.range(10, 0, -1)] * 2, axis=0)
     iterations_per_token = 1
     max_changes = 10
     test_adversarial_sentences, test_finished_attacks = attack_loop.loop(
-        sentences, labels, optimizer, importance_scores, count_updated_tokens,
-        iterations_per_token, max_changes)
+        sentences,
+        labels,
+        optimizer,
+        importance_scores,
+        count_updated_tokens,
+        iterations_per_token,
+        max_changes,
+        padding_index=2)
     # The first sentence is the unsuccessful adversarial attack, where all
     # tokens are set to 0s and the second sentence is the successful attack
     # where all tokens but the last are 0s.
@@ -125,6 +136,40 @@ class AttackLoopTest(absltest.TestCase):
                               test_adversarial_sentences)
 
     tf.debugging.assert_equal(expected_finished_attacks, test_finished_attacks)
+
+  def test_attack_loop_padded_sentences(self):
+    """Test that padding tokens aren't able to be changed in the attack."""
+
+    changed_token_id = 2
+
+    def count_updated_tokens(adversarial_sentences: tf.Tensor,
+                             labels: tf.Tensor) -> tf.Tensor:
+      target_counts = tf.constant([[10], [10]], dtype=tf.int32)
+      updated_tokens = tf.cast((adversarial_sentences == changed_token_id),
+                               tf.int32)
+      current_counts = tf.reduce_sum(updated_tokens, axis=-1, keepdims=True)
+      return target_counts == current_counts
+
+    optimizer = DiscreteZOOMock(changed_token_id)
+    sentences = tf.constant(
+        [[1, 1, 1, 1, 1, 0, 0, 0, 0, 0], [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]],
+        dtype=tf.int32)
+    labels = tf.zeros((2, 1), dtype=tf.int32)
+    # This sets index 0 to the most importance token and index 9 to the least.
+    importance_scores = tf.stack([tf.range(10, 0, -1)] * 2, axis=0)
+    iterations_per_token = 1
+    max_changes = 10
+
+    test_adversarial_sentences, test_finished_attacks = attack_loop.loop(
+        sentences, labels, optimizer, importance_scores, count_updated_tokens,
+        iterations_per_token, max_changes)
+
+    expected_adversarial_sentences = tf.constant(
+        [[2, 2, 2, 2, 2, 0, 0, 0, 0, 0], [2, 2, 2, 2, 2, 2, 2, 2, 2, 2]],
+        dtype=tf.int32)
+
+    tf.debugging.assert_equal(test_adversarial_sentences,
+                              expected_adversarial_sentences)
 
 
 if __name__ == '__main__':
