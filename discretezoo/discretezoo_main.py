@@ -94,6 +94,8 @@ flags.DEFINE_string('output_file', None,
                     'The output file to write adversarial examples to.')
 flags.DEFINE_string('tensorboard_logdir', None,
                     'The output directory to write tensorboard logs to.')
+flags.DEFINE_string('tensorboard_profiling_dir', None,
+                    'The directory to write profiling data to.')
 
 flags.mark_flags_as_required(
     ['model', 'embeddings_file', 'vocab_file', 'dataset', 'output_file'])
@@ -137,6 +139,8 @@ def main(argv):
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
   logging.get_absl_handler().use_absl_log_file()
+  if FLAGS.tensorboard_profiling_dir is not None:
+    tf.profiler.experimental.start(FLAGS.tensorboard_profiling_dir)
 
   logging.info('Writing output to: %s', FLAGS.output_file)
 
@@ -200,7 +204,7 @@ def main(argv):
     examples_attacked = 0
     total_successes = 0
     for step, batch in enumerate(
-        tqdm.tqdm(batched_dataset, desc='Attack Progress:')):
+        tqdm.tqdm(batched_dataset, desc='Attack Progress')):
       tf.summary.experimental.set_step(step)
       if examples_attacked >= FLAGS.num_examples and FLAGS.num_examples != 0:
         break
@@ -250,7 +254,7 @@ def main(argv):
           for tokens in adversarial_sentences_tokens
       ]
       is_padding = adversarial_sentences == FLAGS.padding_index
-      padding_per_sentence = tf.reduce_sum(tf.cast(is_padding, tf.int64),
+      padding_per_sentence = tf.reduce_sum(tf.cast(is_padding, tf.int32),
                                            axis=-1)
       # TODO: Come up with a less hack-y way to ignore queries in importance
       # scoring for padding tokens.
@@ -268,6 +272,8 @@ def main(argv):
 
     success_rate = total_successes / examples_attacked
     logging.info('Success Rate: %f', success_rate)
+    if FLAGS.tensorboard_profiling_dir is not None:
+      tf.profiler.experimental.stop()
 
 
 if __name__ == '__main__':

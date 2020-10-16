@@ -2,6 +2,7 @@ import csv
 from typing import Callable, Tuple, Dict, List
 
 import tensorflow as tf
+import numpy as np
 import transformers
 import pandas as pd
 from discretezoo.loss import semantic_similarity, adversarial_hinge
@@ -46,7 +47,7 @@ class ModelCallable:
     Arguments:
       batch: A batch of sentences. <int32>[batch_size, sentence_length]
     """
-    self.query_count = tf.zeros((batch.shape[0],), dtype=tf.int64)
+    self.query_count = tf.zeros((batch.shape[0],), dtype=tf.int32)
 
   def increment_query_count(self, batch: tf.Tensor) -> None:
     """For every sentence that isn't only padding tokens, increments the count.
@@ -55,10 +56,18 @@ class ModelCallable:
       batch: A batch of sentences, where some sentences may only be the padding
         token. This indicates that the sentence was removed inside attack loop.
         <int32>[batch_size, sentence_length]
+
+    Returns:
+      A tensor <int32>[batch_size, 1] that signifies if the sentence at that
+        location was not padding. If it is not padding, it means the model was
+        queried and we will increment the query count.
     """
+    # Converting the batch to numpy and checking for padding tokens on cpu was
+    # faster than sending the tensors to the GPU to check for integer equality.
+    batch = batch.numpy()
     is_not_padding_tokens = batch != self._padding_index
-    is_not_empty_sentences = tf.math.reduce_any(is_not_padding_tokens, axis=-1)
-    self.query_count += tf.cast(is_not_empty_sentences, tf.int64)
+    is_not_empty_sentences = np.any(is_not_padding_tokens, axis=-1)
+    return tf.convert_to_tensor(is_not_empty_sentences, dtype=tf.int32)
 
   @property
   def get_query_count(self) -> tf.Tensor:

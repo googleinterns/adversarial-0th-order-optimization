@@ -53,6 +53,8 @@ class DiscreteZOO:
       descent: Boolean flag to determine if we're increasing or decreasing loss.
       norm_embeddings: Boolean flag to determine if embeddings should be normed
         for the discretization step.
+      vocab: This is a list of items in the vocabulary. If verbose logging is on
+        then sampled and discretized tokens will be logged.
     """
     self._sampling_strategy = sampling_strategy
     self._num_to_sample = num_to_sample
@@ -113,12 +115,13 @@ class DiscreteZOO:
     score_diff = displacement_token_similarities - \
       displacement_to_original_similarity
     # Log the k top scoring replacement tokens.
-    if self._vocab:
+    if (self._vocab and logging.get_verbosity() == logging.DEBUG and
+        tf.executing_eagerly()):
       top_k_indices = tf.nn.top_k(score_diff, k=5)[1].numpy().tolist()
       top_k_tokens = []
       for example in top_k_indices:
         top_k_tokens.append([self._vocab[index] for index in example])
-      logging.debug("Top K tokens in discretization:\n %s", top_k_tokens)
+      logging.debug('Top K tokens in discretization:\n %s', top_k_tokens)
     # new_candidates are [batch_size,] and are vocab items most similar to
     # displacement vectors after subtracting the scores of the current tokens.
     new_candidates = tf.argmax(score_diff, axis=-1, output_type=tf.int32)
@@ -269,5 +272,14 @@ class DiscreteZOO:
 
       replacement_candidates = self._discretization(reduced_gradient,
                                                     replacement_candidates)
+      # Log the tokens we sample for debugging purposes.
+      if self._vocab and logging.get_verbosity() == logging.DEBUG:
+        sampled_tokens_list = sampled_tokens.numpy().tolist()
+        sampled_tokens_strings = []
+        for example in sampled_tokens_list:
+          sampled_tokens_strings.append(
+              [self._vocab[index] for index in example])
+        logging.debug('Tokens sampled in replace_token: \n%s',
+                      sampled_tokens_strings)
 
     return replacement_candidates

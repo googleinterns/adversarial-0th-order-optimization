@@ -3,6 +3,7 @@
 from typing import Callable, Tuple
 
 import tensorflow as tf
+import tqdm
 
 from discretezoo.attack import estimation
 
@@ -65,7 +66,7 @@ def loop(sentences: tf.Tensor,
   stopped_attacks = tf.zeros((batch_size, 1), dtype=tf.bool)
   stopped_attacks_storage = tf.zeros_like(sentences)
 
-  for target_tokens in range(max_tokens_to_change):
+  for target_tokens in tqdm.trange(max_tokens_to_change, desc='Batch Progress'):
     # attack_order[:, target_tokens] is [batch_size,], we need [batch_size, 1]
     indices = tf.expand_dims(attack_order[:, target_tokens], -1)
     replacement_tokens = optimizer.replace_token(adversarial_sentences,
