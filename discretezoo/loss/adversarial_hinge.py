@@ -2,6 +2,7 @@
 import tensorflow as tf
 
 
+@tf.function
 def targeted_loss(probabilities: tf.Tensor,
                   target_label: tf.Tensor,
                   kappa: float = 0.0) -> tf.Tensor:
@@ -46,6 +47,7 @@ def targeted_loss(probabilities: tf.Tensor,
   return tf.math.maximum(max_other_log_probs - target_log_probs + kappa, 0)
 
 
+@tf.function
 def untargeted_loss(probabilities: tf.Tensor, true_label: tf.Tensor,
                     kappa: float) -> tf.Tensor:
   r"""Loss that is minimized when any label is more likely than the true label.

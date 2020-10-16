@@ -73,6 +73,22 @@ class ModelCallable:
   def get_query_count(self) -> tf.Tensor:
     return self.query_count
 
+  @tf.function(experimental_relax_shapes=True)
+  def _call_model_wrapper(self, **sentences):
+    """Wraps the model call inside of a @tf.function call to improve speed.
+
+    Arguments:
+      **sentences: This is a dictionary of keyword arguments. Because models
+        have different inputs and their tokenizers do as well, calling the model
+        we need to be able to directly pass arbitrary inputs. Tensorflow's
+        tf.function won't trace non-tensor arguments, so passing a dictionary
+        directly would not work.
+    """
+    model_output = self._model(sentences)
+    logits = model_output[0]
+    probabilities = tf.nn.softmax(logits, axis=-1)
+    return probabilities
+
   def __call__(self, sentences: tf.Tensor) -> tf.Tensor:
     """This optionally calls the tokenizer and passes sentences to the model.
 
@@ -108,11 +124,8 @@ class ModelCallable:
                                         return_tensors='tf',
                                         padding=True,
                                         truncation=True)
-    model_output = self._model(sentences)
-    # Transformers raises error when return_dict=True, output is now a tuple.
-    logits = model_output[0]
-    probabilities = tf.nn.softmax(logits, axis=-1)
-    return probabilities
+
+    return self._call_model_wrapper(**sentences)
 
 
 class EarlyStopping:

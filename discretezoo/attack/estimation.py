@@ -73,6 +73,7 @@ class DiscreteZOO:
   def _embedding_lookup(self, indices: tf.Tensor) -> tf.Tensor:
     return tf.nn.embedding_lookup(self._embeddings, indices)
 
+  @tf.function
   def _discretization(self, displacement: tf.Tensor,
                       current_tokens: tf.Tensor) -> tf.Tensor:
     r"""Converts a displacement vector to the ids of the best tokens.
@@ -193,6 +194,57 @@ class DiscreteZOO:
     new_values = tf.reshape(new_values, (-1,))
     return tf.tensor_scatter_nd_update(sentences, position, new_values)
 
+  @tf.function
+  def _gradient_estimate_and_update(
+      self, current_loss: tf.Tensor, sampled_loss: tf.Tensor,
+      sampled_tokens: tf.Tensor,
+      replacement_candidates: tf.Tensor) -> tf.Tensor:
+    """This function wraps gradient estimate code with a tf.function decorator.
+
+    Arguments:
+      current_loss: A batch of loss values for current replacement_candidates.
+        <float32>[batch_size, 1]
+      sampled_loss: Loss values for each token that was sampled.
+        <float32>[batch_size, num_to_sample]
+      sampled_tokens: The indices corresponding to each token in the vocab.
+        <int32>[batch_size, num_to_sample]
+      replacement_candidates: The current tokens at the attack position in the
+        adversarial sentences. <int32>[batch_size, 1]
+
+    Returns:
+      A tensor <int32>[batch_size, 1] of new replacement candidates to insert
+        at the target position in the adversarial sentences.
+    """
+    # [batch_size, num_to_sample, emb_dim].
+    sampled_embeddings = self._embedding_lookup(sampled_tokens)
+    # [batch_size, 1, emb_dim].
+    current_embeddings = self._embedding_lookup(replacement_candidates)
+    # Get displacement vectors from current_embeddings to sampled_embeddings.
+    displacement_vectors = sampled_embeddings - current_embeddings
+
+    # [batch_size, num_to_sample].
+    loss_diff = sampled_loss - current_loss
+    # norm is the l2 of the displacement_vectors and is
+    # [batch_size, num_to_sample].
+    norm = tf.norm(displacement_vectors, axis=-1)
+    scaled_loss_diff = loss_diff / norm
+    # Expand dims to make scaled_loss_diff [batch_size, num_to_sample, 1],
+    # which is compatible with [batch_size, num_to_sample, emb_dim].
+    scaled_loss_diff = tf.expand_dims(scaled_loss_diff, -1)
+    # Yields a [batch_size, num_to_sample, emb_dim] of scaled displacements.
+    gradient = scaled_loss_diff * displacement_vectors
+
+    if self._descent:
+      gradient = -gradient
+
+    # Reduce over the first axis to make gradient [batch_size, emb_dim].
+    if self._reduce_mean:
+      reduced_gradient = tf.reduce_mean(gradient, axis=1)
+    else:
+      reduced_gradient = tf.reduce_sum(gradient, axis=1)
+
+    return self._discretization(reduced_gradient, replacement_candidates)
+
   def replace_token(self, sentences: tf.Tensor, original_sentences: tf.Tensor,
                     labels: tf.Tensor, indices: tf.Tensor,
                     iterations: int) -> tf.Tensor:
@@ -225,21 +277,6 @@ class DiscreteZOO:
       sampled_tokens = self._sampling_strategy(replacement_candidates,
                                                self._embeddings,
                                                self._num_to_sample)
-      # Log the tokens we sample for debugging purposes.
-      if self._vocab:
-        sampled_tokens_list = sampled_tokens.numpy().tolist()
-        sampled_tokens_strings = []
-        for example in sampled_tokens_list:
-          sampled_tokens_strings.append(
-              [self._vocab[index] for index in example])
-        logging.debug('Tokens sampled in replace_token: \n%s',
-                      sampled_tokens_strings)
-      # [batch_size, num_to_sample, emb_dim].
-      sampled_embeddings = self._embedding_lookup(sampled_tokens)
-      # [batch_size, 1, emb_dim].
-      current_embeddings = self._embedding_lookup(replacement_candidates)
-      # Get displacement vectors from current_embeddings to sampled_embeddings.
-      displacement_vectors = sampled_embeddings - current_embeddings
       # Update the sentences with the current replacement_candidates.
       sentences_with_replacements = self.scatter_helper(sentences, indices,
                                                         replacement_candidates)
@@ -249,29 +286,6 @@ class DiscreteZOO:
       # [batch_size, num_to_sample].
       losses = self._get_losses(sentences, original_sentences, labels, indices,
                                 sampled_tokens)
-      # [batch_size, num_to_sample].
-      loss_diff = losses - current_loss
-      # norm is the l2 of the displacement_vectors and is
-      # [batch_size, num_to_sample].
-      norm = tf.norm(displacement_vectors, axis=-1)
-      scaled_loss_diff = loss_diff / norm
-      # Expand dims to make scaled_loss_diff [batch_size, num_to_sample, 1],
-      # which is compatible with [batch_size, num_to_sample, emb_dim].
-      scaled_loss_diff = tf.expand_dims(scaled_loss_diff, -1)
-      # Yields a [batch_size, num_to_sample, emb_dim] of scaled displacements.
-      gradient = scaled_loss_diff * displacement_vectors
-
-      if self._descent:
-        gradient = -gradient
-
-      # Reduce over the first axis to make gradient [batch_size, emb_dim].
-      if self._reduce_mean:
-        reduced_gradient = tf.reduce_mean(gradient, axis=1)
-      else:
-        reduced_gradient = tf.reduce_sum(gradient, axis=1)
-
-      replacement_candidates = self._discretization(reduced_gradient,
-                                                    replacement_candidates)
       # Log the tokens we sample for debugging purposes.
       if self._vocab and logging.get_verbosity() == logging.DEBUG:
         sampled_tokens_list = sampled_tokens.numpy().tolist()
@@ -281,5 +295,8 @@ class DiscreteZOO:
               [self._vocab[index] for index in example])
         logging.debug('Tokens sampled in replace_token: \n%s',
                       sampled_tokens_strings)
+
+      replacement_candidates = self._gradient_estimate_and_update(
+          current_loss, losses, sampled_tokens, replacement_candidates)
 
     return replacement_candidates

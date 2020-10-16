@@ -24,6 +24,7 @@ class EmbeddedCosineDistance:
         f' but you passed a tensor with {embeddings.ndim}.')
     self._embeddings = embeddings
 
+  @tf.function
   def __call__(self, original_sentences: tf.Tensor,
                adversarial_sentences: tf.Tensor) -> tf.Tensor:
     r"""Calculates cosine distance between reduced embedded sentences.
@@ -88,6 +89,7 @@ class EmbeddedEuclideanDistance:
     self._embeddings = embeddings
     self._reduce_mean = reduce_mean
 
+  @tf.function
   def __call__(self, original_sentences: tf.Tensor,
                adversarial_sentences: tf.Tensor) -> tf.Tensor:
     """Calculates euclidean distances between reduced embedded sentences.

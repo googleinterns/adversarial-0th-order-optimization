@@ -40,7 +40,7 @@ class UntargetedLossTest(absltest.TestCase):
     test_loss = adversarial_hinge.untargeted_loss(probability_vector,
                                                   true_label_vector, 0.0)
     expected_loss = tf.constant([0.0])
-    tf.debugging.assert_equal(test_loss, expected_loss)
+    tf.debugging.assert_near(test_loss, expected_loss)
 
   def test_untargeted_loss_nonzero_kappa(self):
     """Test edge case where model output is uniform and kappa is nonzero."""
@@ -56,7 +56,7 @@ class UntargetedLossTest(absltest.TestCase):
     test_loss = adversarial_hinge.untargeted_loss(probability_vector,
                                                   true_label_vector, kappa)
 
-    tf.debugging.assert_equal(test_loss, tf.constant([kappa]))
+    tf.debugging.assert_near(test_loss, tf.constant([kappa]))
 
   def test_untargeted_loss_overconfident_model(self):
     """Test the edge case where the model predicts 1.0 for the true class."""
@@ -109,7 +109,7 @@ class TargetedLossTest(absltest.TestCase):
     test_loss = adversarial_hinge.targeted_loss(probability_vector,
                                                 target_label_vector, 0.0)
 
-    tf.debugging.assert_equal(test_loss, 0.0)
+    tf.debugging.assert_near(test_loss, 0.0)
 
   def test_targeted_loss_nonzero_kappa(self):
     """Test edge case where it's the uniform distribution and kappa > 0.0."""
@@ -125,7 +125,7 @@ class TargetedLossTest(absltest.TestCase):
     test_loss = adversarial_hinge.targeted_loss(probability_vector,
                                                 target_label_vector, kappa)
 
-    tf.debugging.assert_equal(test_loss, tf.constant([kappa]))
+    tf.debugging.assert_near(test_loss, tf.constant([kappa]))
 
   def test_targeted_loss_overconfident_model(self):
     """Test the case where the model is overconfident about its prediction."""
