@@ -1,10 +1,15 @@
 import csv
+import itertools
+from operator import itemgetter
+from collections import defaultdict
 from typing import Callable, Tuple, Dict, List
 
 import tensorflow as tf
 import numpy as np
 import transformers
 import pandas as pd
+from nltk import tokenize
+
 from discretezoo.loss import semantic_similarity, adversarial_hinge
 
 
@@ -29,11 +34,11 @@ class ModelCallable:
         tokenizer before calling the model.
       padding_index: An integer that is the index of the padding token in vocab.
     """
-    self._model = transformers.TFBertForSequenceClassification.from_pretrained(
+    self._model = transformers.TFAutoModelForSequenceClassification.from_pretrained(
         model_name)
     if include_tokenizer:
-      self._model_tokenizer = transformers.BertTokenizer.from_pretrained(
-          model_name)
+      self._model_tokenizer = transformers.AutoTokenizer.from_pretrained(
+          model_name, use_fast=True)
     else:
       self._model_tokenizer = None
     self._vocab = vocab
@@ -56,18 +61,14 @@ class ModelCallable:
       batch: A batch of sentences, where some sentences may only be the padding
         token. This indicates that the sentence was removed inside attack loop.
         <int32>[batch_size, sentence_length]
-
-    Returns:
-      A tensor <int32>[batch_size, 1] that signifies if the sentence at that
-        location was not padding. If it is not padding, it means the model was
-        queried and we will increment the query count.
     """
     # Converting the batch to numpy and checking for padding tokens on cpu was
     # faster than sending the tensors to the GPU to check for integer equality.
     batch = batch.numpy()
     is_not_padding_tokens = batch != self._padding_index
     is_not_empty_sentences = np.any(is_not_padding_tokens, axis=-1)
-    return tf.convert_to_tensor(is_not_empty_sentences, dtype=tf.int32)
+    self.query_count = self.query_count + tf.convert_to_tensor(
+        is_not_empty_sentences, dtype=tf.int32)
 
   @property
   def get_query_count(self) -> tf.Tensor:
@@ -181,24 +182,23 @@ class OutputDifference:
     self._model_fun = model_fun
 
   def __call__(self, changed_sentences: tf.Tensor,
-               original_sentences: tf.Tensor) -> tf.Tensor:
+               original_probabilities: tf.Tensor) -> tf.Tensor:
     """Computes the difference between two sentences with KL Divergence.
 
     Arguments:
       changed_sentences: This is a copy of original_sentences with a single
         token per sentence dropped or masked.
         <int32>[batch_size, sentence_length]
-      original_sentences: This is the original batch of sentences that changed
-        sentences will be compared to.
-        <int32>[batch_size, sentence_length]
+      original_probabilities: This is the output probabilities for the original
+        batch of sentences that changed sentences will be compared to.
+        <float32>[batch_size, number_of_classes]
 
     Returns:
       A tensor containing the KL Divergence per sentence.
         <float32>[batch_size, 1]
     """
     changed_sentences_output = self._model_fun(changed_sentences)
-    original_sentences_output = self._model_fun(original_sentences)
-    difference = tf.keras.losses.kl_divergence(original_sentences_output,
+    difference = tf.keras.losses.kl_divergence(original_probabilities,
                                                changed_sentences_output)
     return tf.reshape(difference, (-1, 1))
 
@@ -307,3 +307,61 @@ def load_embeddings(
   indices = range(len(vocab))
   token_to_id = dict(zip(vocab, indices))
   return embeddings_matrix, token_to_id, vocab
+
+
+def tokenize_sentence(text: str) -> List[str]:
+  """This function accepts a single piece of text and tokenizes it.
+
+  A single text can contain multiple sentences. However, the word tokenizer does
+  not function over texts with multiple sentences. This splits texts into
+  multiple sentences, runs the word tokenizer over each sentence, and then adds
+  the sentences together to get a single list of tokens.
+
+  Arguments:
+    text: A string possibly containing multiple sentences.
+
+  Returns:
+    A list of tokens from the input text.
+  """
+  split_sentences = tokenize.sent_tokenize(text)
+  tokenized_split_sentences = [
+      tokenize.word_tokenize(sentence) for sentence in split_sentences
+  ]
+  joined_tokenized_sentences = list(itertools.chain(*tokenized_split_sentences))
+  return joined_tokenized_sentences
+
+
+def sort_dataset(dataset: tf.data.Dataset) -> tf.data.Dataset:
+  """This functions accepts a tf Dataset, and sorts it by the number of tokens.
+
+  Arguments:
+    dataset: A tf.data.Dataset where each example is a dictionary of tensors and
+      each dictionary has the key 'sentence' whose value is a string tensor.
+
+  Returns:
+    A tf.data.Dataset sorted by the number of tokens contained in 'sentence',
+      with the contents of 'sentence' being tokenized. Additionally, it adds the
+      key 'token_count', which it uses to sort the dataset.
+  """
+  example_list = []
+
+  for example in dataset:
+    example['sentence'] = tokenize_sentence(
+        example['sentence'].numpy().decode('utf-8'))
+    example['token_count'] = len(example['sentence'])
+    example_list.append(example)
+
+  example_list = sorted(example_list, key=itemgetter('token_count'))
+
+  example_dict = defaultdict(list)
+  for example in example_list:
+    for key in example.keys():
+      example_dict[key].append(example[key])
+
+  # Sentences have to be converted to ragged constants after they're all in the
+  # same list, otherwise they become normal tensors whose shapes won't match
+  # inside of Dataset.from_tensor_slices.
+  example_dict['sentence'] = tf.ragged.constant(example_dict['sentence'])
+  # Tensorflow Dataset initializer doesn't recognize defaultdicts.
+  example_dict = dict(example_dict)
+  return tf.data.Dataset.from_tensor_slices(example_dict)

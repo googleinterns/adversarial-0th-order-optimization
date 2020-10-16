@@ -2,7 +2,6 @@ import datetime
 import os
 import itertools
 import csv
-from typing import List
 
 from absl import app
 from absl import flags
@@ -11,7 +10,6 @@ from absl import logging
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import tqdm
-from nltk import tokenize
 from nltk.tokenize import treebank
 
 from discretezoo import attack_setup
@@ -106,35 +104,6 @@ TSV_HEADER = [
 ]
 
 
-def tokenize_sentences(text_list: List[str]) -> List[List[str]]:
-  """This function accepts a list of texts and tokenizes them.
-
-  A single text can contain multiple sentences, however the word tokenizer does
-  not function over texts with multiple sentences. This splits texts into
-  multiple sentences, runs the word tokenizer over each sentence, and then adds
-  the sentences together to get a single list of tokens.
-
-  Arguments:
-    text_list: A list of strings where each string is a text possibly containing
-      multiple sentences.
-
-  Returns:
-    A list of list of strings where the strings are tokens from the input texts.
-  """
-  split_sentences = [tokenize.sent_tokenize(text) for text in text_list]
-  tokenized_split_sentences = []
-  for sentences in split_sentences:
-    tokenized_sentences = [
-        tokenize.word_tokenize(sentence) for sentence in sentences
-    ]
-    tokenized_split_sentences.append(tokenized_sentences)
-  joined_tokenized_sentences = [
-      list(itertools.chain(*sentences))
-      for sentences in tokenized_split_sentences
-  ]
-  return joined_tokenized_sentences
-
-
 def main(argv):
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
@@ -176,7 +145,8 @@ def main(argv):
   early_stopping_criterion = attack_setup.EarlyStopping(model_fun)
 
   dataset = tfds.load(FLAGS.dataset, split=FLAGS.split)
-  batched_dataset = dataset.batch(FLAGS.batch_size)
+  sorted_dataset = attack_setup.sort_dataset(dataset)
+  batched_dataset = sorted_dataset.batch(FLAGS.batch_size)
 
   if FLAGS.sampling_strategy == 'uniform':
     sampling_strategy = sampling.uniform_sampling
@@ -210,14 +180,15 @@ def main(argv):
         break
       text_batch = batch['sentence'].numpy().tolist()
       original_labels = batch['label']
-      # Tensorflow Datasets saves text as bytes.
-      text_batch = [text.decode('utf-8') for text in text_batch]
-      # Pre-process the batch of sentences into a numerical tensor.
-      tokenized_text_batch = tokenize_sentences(text_batch)
+      # Tensorflow saves text as bytes.
+      decoded_text_batch = []
+      for text in text_batch:
+        decoded_text_batch.append([token.decode('utf-8') for token in text])
       # Log original tokenized texts.
-      logging.debug("Original sentences: \n%s", tokenized_text_batch)
+      logging.debug("Original sentences: \n%s", decoded_text_batch)
+      # Pre-process the batch of sentences into a numerical tensor.
       numericalized_batch = []
-      for tokenized_text in tokenized_text_batch:
+      for tokenized_text in decoded_text_batch:
         numericalized_text = [
             token_to_id.get(token.lower(), FLAGS.oov_index)
             for token in tokenized_text

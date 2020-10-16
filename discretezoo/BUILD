@@ -18,3 +18,13 @@ py_library(name="attack_setup",
                "//discretezoo/loss:adversarial_hinge",
                "//discretezoo/loss:semantic_similarity"
            ])
+
+py_test(
+  name = "attack_setup_test",
+  srcs = ["attack_setup_test.py"],
+  srcs_version = "PY3",
+  python_version = "PY3",
+  deps = [
+    ":attack_setup",
+  ]
+)
