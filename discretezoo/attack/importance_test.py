@@ -13,7 +13,7 @@ class ScorerTest(absltest.TestCase):
   def test_scorer(self):
     """This tests the importance scorer as a whole."""
 
-    def output_difference_fn(deleted_token_sentence, original_sentences):
+    def output_difference_fn(deleted_token_sentence, original_probabilities):
       return tf.cast(
           tf.math.reduce_sum(deleted_token_sentence, axis=-1, keepdims=True),
           tf.float32)
@@ -22,8 +22,10 @@ class ScorerTest(absltest.TestCase):
       return sentences
 
     sentence = tf.expand_dims(tf.range(0, 10), axis=0)
+    original_probabilities = tf.zeros((1, 10))
     expected_scores = tf.constant([[45.0] * 10])
     test_scores = importance.scorer(sentence,
+                                    original_probabilities,
                                     output_difference_fn,
                                     dropper_function,
                                     pad_id=-1)
@@ -32,7 +34,7 @@ class ScorerTest(absltest.TestCase):
   def test_ignore_padding(self):
     """This tests whether or not padding tokens are ignored in scoring."""
 
-    def output_difference_fn(deleted_token_sentence, original_sentences):
+    def output_difference_fn(deleted_token_sentence, original_probabilities):
       return tf.cast(
           tf.math.reduce_sum(deleted_token_sentence, axis=-1, keepdims=True),
           tf.float32)
@@ -42,12 +44,13 @@ class ScorerTest(absltest.TestCase):
 
     sentences = tf.constant([[1, 1, 1, 1, 1], [1, 1, 1, 1, 0], [1, 1, 1, 0, 0],
                              [1, 1, 0, 0, 0], [1, 0, 0, 0, 0]])
+    original_probabilities = tf.zeros((5, 5))
     expected_scores = tf.constant(
         [[5, 5, 5, 5, 5], [4, 4, 4, 4, 0], [3, 3, 3, 0, 0], [2, 2, 0, 0, 0],
          [1, 0, 0, 0, 0]],
         dtype=tf.float32)
-    test_scores = importance.scorer(sentences, output_difference_fn,
-                                    dropper_function)
+    test_scores = importance.scorer(sentences, original_probabilities,
+                                    output_difference_fn, dropper_function)
     tf.debugging.assert_equal(expected_scores, test_scores)
 
 

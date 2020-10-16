@@ -223,10 +223,13 @@ def main(argv):
                                                dtype=tf.int32)
       tensor_batch = ragged_tensor_batch.to_tensor(FLAGS.padding_index)
       model_fun.reset_query_tracking(tensor_batch)
-      model_predicted_labels = tf.argmax(model_fun(tensor_batch),
+      model_predicted_probabilities = model_fun(tensor_batch)
+      model_predicted_labels = tf.argmax(model_predicted_probabilities,
                                          axis=-1,
                                          output_type=tf.int32)
-      importance_scores = importance.scorer(tensor_batch, output_difference,
+      importance_scores = importance.scorer(tensor_batch,
+                                            model_predicted_probabilities,
+                                            output_difference,
                                             importance.drop_position)
       adversarial_sentences, is_finished_attacks = attack_loop.loop(
           sentences=tensor_batch,

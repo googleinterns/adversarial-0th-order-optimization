@@ -42,6 +42,7 @@ def drop_position(sentences: tf.Tensor, position: int, **kwargs) -> tf.Tensor:
 
 
 def scorer(sentences: tf.Tensor,
+           original_probabilities: tf.Tensor,
            output_difference_fn: Callable[[tf.Tensor, tf.Tensor], tf.Tensor],
            removal_fn: Callable[[tf.Tensor, int], tf.Tensor],
            removal_fn_kwargs: Dict[str, Any] = {},
@@ -54,6 +55,10 @@ def scorer(sentences: tf.Tensor,
   Args:
     sentences: A tensor <int32>[batch_size, sentence_length] of token ids.
       Sentences of different lengths are assumed to be padded with pad_id.
+    original_probabilities: The class probabilities for the original sentences.
+      Pre-computing the probabilities outside of output_difference_fn lets them
+      be re-used, which reduces model queries and saves on compute time.
+      <float32>[batch_size, number_of_classes]
     output_difference_fn: A callable that returns the output difference between
       inputs. First input is the sentences with the dropped/masked token.
       Second input is the original sentences. Outputs are in [0, +inf]. Must
@@ -70,11 +75,11 @@ def scorer(sentences: tf.Tensor,
   """
   position_mask = tf.where(sentences == pad_id, 0.0, 1.0)
   differences = []
-
   for position in range(sentences.shape[-1]):
     dropped_token_sentences = removal_fn(sentences, position,
                                          **removal_fn_kwargs)
-    loss_differences = output_difference_fn(dropped_token_sentences, sentences)
+    loss_differences = output_difference_fn(dropped_token_sentences,
+                                            original_probabilities)
     differences.append(loss_differences)
 
   difference_matrix = tf.concat(differences, -1)
