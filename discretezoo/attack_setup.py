@@ -1,14 +1,14 @@
 import csv
+from collections import defaultdict
 import itertools
 from operator import itemgetter
-from collections import defaultdict
 from typing import Callable, Tuple, Dict, List
 
-import tensorflow as tf
 import numpy as np
-import transformers
-import pandas as pd
 from nltk import tokenize
+import pandas as pd
+import tensorflow as tf
+import transformers
 
 from discretezoo.loss import semantic_similarity, adversarial_hinge
 
@@ -120,7 +120,7 @@ class ModelCallable:
     if self._model_tokenizer:
       # Assert that sentences is a non-empty list of strings.
       assert len(sentences) >= 1 and isinstance(sentences[0], str), \
-        "Sentences must be a list of strings if using a tokenizer."
+        'Sentences must be a list of strings if using a tokenizer.'
       sentences = self._model_tokenizer(sentences,
                                         return_tensors='tf',
                                         padding=True,
@@ -267,10 +267,10 @@ class AdversarialLoss:
     loss = self._loss_fun(adversarial_probabilities, labels, self._kappa)
     distance = self._distance_object(original_sentences, adversarial_sentences)
     if self._tensorboard_logging:
-      tf.summary.histogram("Hinge Loss",
+      tf.summary.histogram('Hinge Loss',
                            loss,
                            step=tf.summary.experimental.get_step())
-      tf.summary.histogram("Semantic Distance",
+      tf.summary.histogram('Semantic Distance',
                            distance,
                            step=tf.summary.experimental.get_step())
     return loss + (self._interpolation * distance)

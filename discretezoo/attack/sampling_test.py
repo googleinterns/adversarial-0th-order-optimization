@@ -1,10 +1,9 @@
 """Tests for the sampling functions in the file sampling.py"""
+from absl import flags
+from absl.testing import absltest
 import tensorflow as tf
 
 from discretezoo.attack import sampling
-
-from absl import flags
-from absl.testing import absltest
 
 
 class SimilaritySamplingTest(absltest.TestCase):

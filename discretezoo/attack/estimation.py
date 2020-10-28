@@ -1,8 +1,8 @@
 """Estimation contains a class that estimates gradients in discrete space."""
-
-import tensorflow as tf
 from typing import Callable, List
+
 from absl import logging
+import tensorflow as tf
 
 
 class DiscreteZOO:

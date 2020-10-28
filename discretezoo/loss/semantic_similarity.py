@@ -1,7 +1,4 @@
 import tensorflow as tf
-import tensorflow_hub as tfhub
-
-from typing import Callable
 
 
 class EmbeddedCosineDistance:

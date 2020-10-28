@@ -1,7 +1,7 @@
 """Tests for the file discretezoo_main.py"""
+from absl.testing import absltest
 import tensorflow as tf
 
-from absl.testing import absltest
 from discretezoo import attack_setup
 
 

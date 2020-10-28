@@ -1,16 +1,14 @@
 import datetime
 import os
-import itertools
 import csv
 
 from absl import app
 from absl import flags
 from absl import logging
-
+from nltk.tokenize import treebank
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import tqdm
-from nltk.tokenize import treebank
 
 from discretezoo import attack_setup
 from discretezoo.attack import importance, attack_loop, estimation, sampling

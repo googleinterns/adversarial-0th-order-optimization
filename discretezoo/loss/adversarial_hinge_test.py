@@ -1,8 +1,7 @@
 """Tests for the file adversarial_hinge.py"""
-import tensorflow as tf
-
 from absl import flags
 from absl.testing import absltest
+import tensorflow as tf
 
 from discretezoo.loss import adversarial_hinge
 

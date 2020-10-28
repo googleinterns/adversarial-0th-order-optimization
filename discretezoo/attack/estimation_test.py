@@ -1,8 +1,7 @@
 """Tests for the file estimation.py"""
-import tensorflow as tf
-
 from absl import flags
 from absl.testing import absltest
+import tensorflow as tf
 
 from discretezoo.attack import estimation
 

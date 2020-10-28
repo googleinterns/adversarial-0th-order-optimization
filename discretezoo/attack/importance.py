@@ -1,6 +1,7 @@
 """Contains the importance scorer for deciding which token to change."""
-import tensorflow as tf
 from typing import Callable, Dict, Any
+
+import tensorflow as tf
 
 
 def mask_position(sentences: tf.Tensor, position: int, **kwargs) -> tf.Tensor:

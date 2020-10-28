@@ -1,10 +1,8 @@
 """Contains the importance scorer tests."""
+from absl.testing import absltest
 import tensorflow as tf
 
 from discretezoo.attack import importance
-
-from absl import flags
-from absl.testing import absltest
 
 
 class ScorerTest(absltest.TestCase):

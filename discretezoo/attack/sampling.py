@@ -1,6 +1,5 @@
-import tensorflow as tf
-
 from sklearn.metrics import pairwise
+import tensorflow as tf
 
 
 def uniform_sampling(indices: tf.Tensor, embeddings: tf.Tensor,

@@ -1,7 +1,6 @@
 """Tests for the file attack_loop.py"""
-import tensorflow as tf
-
 from absl.testing import absltest
+import tensorflow as tf
 
 from discretezoo.attack import estimation
 from discretezoo.attack import attack_loop
