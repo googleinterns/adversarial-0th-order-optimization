@@ -10,7 +10,7 @@ import pandas as pd
 import tensorflow as tf
 import transformers
 
-from discretezoo.loss import semantic_similarity, adversarial_hinge
+from discretezoo.loss import adversarial_hinge
 
 
 class ModelCallable:
@@ -34,8 +34,8 @@ class ModelCallable:
         tokenizer before calling the model.
       padding_index: An integer that is the index of the padding token in vocab.
     """
-    self._model = transformers.TFAutoModelForSequenceClassification.from_pretrained(
-        model_name)
+    self._model = (transformers.TFAutoModelForSequenceClassification.
+                   from_pretrained(model_name))
     if include_tokenizer:
       self._model_tokenizer = transformers.AutoTokenizer.from_pretrained(
           model_name, use_fast=True)
@@ -106,16 +106,8 @@ class ModelCallable:
       self.reset_query_tracking(sentences)
     self.increment_query_count(sentences)
 
-    numeric_batch = sentences.numpy().tolist()
-    token_batch = []
-    for example in numeric_batch:
-      token_batch.append([
-          self._vocab[index]
-          for index in example
-          if index != self._padding_index
-      ])
-
-    sentences = [self._detokenizer(sentence) for sentence in token_batch]
+    sentences = tensor_to_strings(sentences, self._vocab, self._detokenizer,
+                                  self._padding_index)
 
     if self._model_tokenizer:
       # Assert that sentences is a non-empty list of strings.
@@ -209,7 +201,7 @@ class AdversarialLoss:
 
   def __init__(self,
                model_fun: Callable[[tf.Tensor], tf.Tensor],
-               use_cosine: bool,
+               distance_fun: Callable[[tf.Tensor, tf.Tensor], tf.Tensor],
                embeddings: tf.Tensor,
                interpolation: float = 1.0,
                kappa: float = 0.0,
@@ -218,9 +210,8 @@ class AdversarialLoss:
 
     Arguments:
       model_fun: A callable that returns probabilities for sentences.
-      use_cosine: A boolean that controls which distance function is used to
-        measure semantic similarity for the attack. True means use cosine
-        distance and false means use euclidean distance.
+      distance_fun: A callable implementing a distance metric between two
+        sentences.
       embeddings: A tensor that contains the embeddings for measuring distance.
         <float32>[vocab_size, embedding_dimension]
       interpolation: A float that is multiplied with the distance before adding
@@ -230,13 +221,7 @@ class AdversarialLoss:
       tensorboard_logging: A boolean that controls if loss values are written
         to tensorboard.
     """
-    if use_cosine:
-      distance_object = semantic_similarity.EmbeddedCosineDistance(embeddings)
-    else:
-      distance_object = semantic_similarity.EmbeddedEuclideanDistance(
-          embeddings)
-
-    self._distance_object = distance_object
+    self._distance_fun = distance_fun
     self._loss_fun = adversarial_hinge.untargeted_loss
     self._model_fun = model_fun
     self._interpolation = interpolation
@@ -265,7 +250,7 @@ class AdversarialLoss:
     """
     adversarial_probabilities = self._model_fun(adversarial_sentences)
     loss = self._loss_fun(adversarial_probabilities, labels, self._kappa)
-    distance = self._distance_object(original_sentences, adversarial_sentences)
+    distance = self._distance_fun(original_sentences, adversarial_sentences)
     if self._tensorboard_logging:
       tf.summary.histogram('Hinge Loss',
                            loss,
@@ -365,3 +350,32 @@ def sort_dataset(dataset: tf.data.Dataset) -> tf.data.Dataset:
   # Tensorflow Dataset initializer doesn't recognize defaultdicts.
   example_dict = dict(example_dict)
   return tf.data.Dataset.from_tensor_slices(example_dict)
+
+
+def tensor_to_strings(numeric_tensor: tf.Tensor,
+                      vocab: List[str],
+                      detokenizer: Callable[[List[str]], str],
+                      padding_index: int = 0) -> List[str]:
+  """Converts a tensor of vocab indices into a list of strings.
+
+  Arguments:
+    numeric_tensor: A <int32>[batch_size, sentence_length] tensor of vocab
+      indices.
+    vocab: A list of tokens used to convert indices into tokens.
+    detokenizer: A callable that takes a list of tokens and returns the tokens
+      joined by whitespace and reverses the tokenization regexes.
+    padding_index: The index of the padding token in the vocabulary, used to
+      remove the padding tokens from the returned text.
+
+  Returns:
+    A list of detokenized sentences.
+  """
+  numeric_batch = numeric_tensor.numpy().tolist()
+  token_batch = []
+  for example in numeric_batch:
+    while example and example[-1] == padding_index:
+      example.pop()
+    token_batch.append([vocab[index] for index in example])
+
+  sentences = [detokenizer(sentence) for sentence in token_batch]
+  return sentences

@@ -1,4 +1,9 @@
+from typing import Callable, List
+
 import tensorflow as tf
+import tensorflow_hub as tfhub
+
+from discretezoo import attack_setup
 
 
 class EmbeddedCosineDistance:
@@ -53,9 +58,9 @@ class EmbeddedCosineDistance:
     adversarial_sentences_reduced = tf.math.reduce_sum(
         adversarial_sentences_embedded, axis=1)
 
-    # Unintuitively, tf.keras.losses.cosine_similarity returns distances in
-    # [-1, 1]. Adding 1 means that two vectors will have 0 as a minimum distance
-    # instead of -1, which is helpful in later loss computation.
+    # Unintuitively, tf.keras.losses.cosine_similarity returns negative cosine
+    # similarity. Adding 1 means that two vectors will have 0 as a minimum
+    # distance instead of -1, which is helpful in later loss computation.
     distance = 1 + tf.keras.losses.cosine_similarity(
         original_sentences_reduced, adversarial_sentences_reduced)
     return tf.expand_dims(distance, 1)
@@ -121,3 +126,72 @@ class EmbeddedEuclideanDistance:
                                          adversarial_sentences_reduced)
     distance = tf.norm(difference_vector, axis=-1, keepdims=True)
     return distance
+
+
+class UniversalSentenceEncoderDistance:
+  """Wraps the Universal Sentence Encoder and converts tensors to strings.
+
+  The Universal Sentence Encoder expects python strings as input and includes
+  its own tokenizer. The attack functions on tensors, so we need to convert
+  vocab indices to tokens and then detokenize the text back into strings.
+
+  Attributes:
+    detokenizer: Detokenizer accepts a list of tokens, joins them by whitespace,
+      and then undoes the regexes used to tokenize text.
+    vocab: A list of tokens in the vocabulary.
+    padding_index: An integer indicating which vocab entry is the padding token.
+    encoder: This is a tensorflow hub module corresponding to the Universal
+      Sentence Encoder.
+  """
+
+  def __init__(
+      self,
+      detokenizer: Callable[[List[str]], str],
+      vocab: List[str],
+      padding_index: int = 0,
+      use_tfhub_url:
+      str = 'https://tfhub.dev/google/universal-sentence-encoder-large/5'):
+    """Initializes the UniversalSentenceEncoderDistance class.
+
+    Arguments:
+    detokenizer: Detokenizer accepts a list of tokens, joins them by whitespace,
+      and then undoes the regexes used to tokenize text.
+    vocab: A list of tokens in the vocabulary.
+    padding_index: An integer indicating which vocab entry is the padding token.
+    use_tfhub_url: The URL to the Universal Sentence Encoder on the Tensorflow
+      Hub. The default value corresponds to the Transformer based model, but
+        Deep Averaging Networks and multilingual versions are also available.
+    """
+    self._vocab = vocab
+    self._padding_index = padding_index
+    self._detokenizer = detokenizer
+    self._encoder = tfhub.load(use_tfhub_url)
+
+  def __call__(self, original_sentences: tf.Tensor,
+               adversarial_sentences: tf.Tensor) -> tf.Tensor:
+    """Converts tensors of vocabulary indices to strings and calls the encoder.
+
+    Arguments:
+      original_sentences: A tensor of token indices in the original sentences.
+        <int32>[batch_size, sentence_length]
+      adversarial_sentences: A tensor of token indices in the adversarial
+        sentences. <int32>[batch_size, sentence_length]
+
+    Returns:
+      A tensor <float32>[batch_size, 1] of cosine distances between original
+        and adversarial sentences encoded by the Universal Sentence Encoder.
+    """
+    original_sentence_strings = attack_setup.tensor_to_strings(
+        original_sentences, self._vocab, self._detokenizer, self._padding_index)
+    adversarial_sentence_strings = attack_setup.tensor_to_strings(
+        adversarial_sentences, self._vocab, self._detokenizer,
+        self._padding_index)
+
+    original_sentence_embedding = self._encoder(original_sentence_strings)
+    adversarial_sentence_embedding = self._encoder(adversarial_sentence_strings)
+    # Unintuitively, tf.keras.losses.cosine_similarity returns negative cosine
+    # similarity. Adding 1 means that two vectors will have 0 as a minimum
+    # distance instead of -1, which is helpful in later loss computation.
+    distance = 1 + tf.keras.losses.cosine_similarity(
+        original_sentence_embedding, adversarial_sentence_embedding)
+    return tf.expand_dims(distance, 1)

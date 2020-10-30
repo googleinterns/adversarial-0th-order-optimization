@@ -12,6 +12,7 @@ import tqdm
 
 from discretezoo import attack_setup
 from discretezoo.attack import importance, attack_loop, estimation, sampling
+from discretezoo.loss import semantic_similarity
 
 FLAGS = flags.FLAGS
 # Target model settings.
@@ -77,8 +78,10 @@ flags.DEFINE_integer('batch_size',
                      'How many sentences to attack simultaneously.',
                      lower_bound=1)
 flags.DEFINE_enum(
-    'semantic_similarity', 'cosine', ['euclidean', 'cosine'],
-    'This controls how similarity between two sentences is computed.')
+    'semantic_similarity', 'cosine', ['euclidean', 'cosine', 'use'],
+    'This controls how similarity between two sentences is computed. '
+    '"use" stands for Universal Sentence Encoder, a sentence embedding method '
+    'and the resulting embeddings will be compared with cosine distance.')
 flags.DEFINE_float(
     'interpolation',
     1.0,
@@ -136,9 +139,18 @@ def main(argv):
       detokenizer.detokenize,
       include_tokenizer=FLAGS.include_tokenizer,
       padding_index=FLAGS.padding_index)
+
+  if FLAGS.semantic_similarity == 'cosine':
+    distance_fun = semantic_similarity.EmbeddedCosineDistance(embeddings)
+  elif FLAGS.semantic_similarity == 'euclidean':
+    distance_fun = semantic_similarity.EmbeddedEuclideanDistance(embeddings)
+  else:
+    distance_fun = semantic_similarity.UniversalSentenceEncoderDistance(
+        detokenizer.detokenize, vocab, padding_index=FLAGS.padding_index)
+
   adversarial_loss = attack_setup.AdversarialLoss(
       model_fun=model_fun,
-      use_cosine=FLAGS.semantic_similarity,
+      distance_fun=distance_fun,
       embeddings=embeddings,
       interpolation=FLAGS.interpolation,
       kappa=FLAGS.kappa,
@@ -193,6 +205,9 @@ def main(argv):
       decoded_text_batch = []
       for text in text_batch:
         decoded_text_batch.append([token.decode('utf-8') for token in text])
+      decoded_text_batch_strings = [
+          ' '.join(tokens) for tokens in decoded_text_batch
+      ]
       # Log original tokenized texts.
       logging.debug("Original sentences: \n%s", decoded_text_batch)
       # Pre-process the batch of sentences into a numerical tensor.
@@ -224,15 +239,9 @@ def main(argv):
           iterations_per_token=FLAGS.changes_per_token,
           max_changes=FLAGS.token_changes_per_sentence)
       # Post-process the adversarial sentences back into detokenized text.
-      adversarial_sentences_tokens = []
-      for sentence in adversarial_sentences:
-        sentence_tokens = [vocab[index] for index in sentence]
-        adversarial_sentences_tokens.append(sentence_tokens)
-
-      adversarial_sentences_strings = [
-          detokenizer.detokenize(tokens)
-          for tokens in adversarial_sentences_tokens
-      ]
+      adversarial_sentences_strings = attack_setup.tensor_to_strings(
+          adversarial_sentences, vocab, detokenizer.detokenize,
+          FLAGS.padding_index)
       is_padding = adversarial_sentences == FLAGS.padding_index
       padding_per_sentence = tf.reduce_sum(tf.cast(is_padding, tf.int32),
                                            axis=-1)
@@ -243,7 +252,7 @@ def main(argv):
       tsv_data = zip(original_labels.numpy().tolist(),
                      model_predicted_labels.numpy().tolist(),
                      is_finished_attacks.numpy().tolist(), query_count,
-                     text_batch, adversarial_sentences_strings)
+                     decoded_text_batch_strings, adversarial_sentences_strings)
       tsv_output.writerows(tsv_data)
 
       total_successes += tf.reduce_sum(tf.cast(is_finished_attacks,
