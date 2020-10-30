@@ -38,7 +38,8 @@ class DiscreteZOO:
                reduce_mean: bool = True,
                descent: bool = True,
                norm_embeddings: bool = False,
-               vocab: List[str] = None):
+               vocab: List[str] = None,
+               special_tokens: List[int] = None):
     """Initializes DiscreteZOO with the information needed for our attack.
 
     Args:
@@ -64,6 +65,14 @@ class DiscreteZOO:
     self._descent = descent
     self._norm_embeddings = norm_embeddings
     self._vocab = vocab
+    if special_tokens is not None:
+      special_token_booleans = [False] * len(vocab)
+      for token in special_tokens:
+        special_token_booleans[token] = True
+      self._special_token_mask = tf.constant(special_token_booleans,
+                                             dtype=tf.bool)
+    else:
+      self._special_token_mask = None
 
     if self._norm_embeddings:
       self._embeddings = self._embeddings / tf.expand_dims(
@@ -115,6 +124,9 @@ class DiscreteZOO:
     # similarities by the similarity of the current tokens.
     score_diff = displacement_token_similarities - \
       displacement_to_original_similarity
+
+    if self._special_token_mask is not None:
+      score_diff = tf.where(self._special_token_mask, float('-inf'), score_diff)
     # Log the k top scoring replacement tokens.
     if (self._vocab and logging.get_verbosity() == logging.DEBUG and
         tf.executing_eagerly()):

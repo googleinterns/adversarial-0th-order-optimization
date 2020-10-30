@@ -56,6 +56,10 @@ flags.DEFINE_bool('normalize_embeddings', False,
 flags.DEFINE_bool(
     'reduce_mean', True,
     'Controls whether sentences and gradients are reduced using mean or sum.')
+flags.DEFINE_list(
+    'special_tokens', [],
+    'The index of vocabulary items that should not be generated. '
+    'Must be integers.')
 # Attack settings.
 flags.DEFINE_string(
     'dataset', None,
@@ -153,6 +157,12 @@ def main(argv):
   else:
     sampling_strategy = sampling.knn_sampling_cosine
 
+  command_line_special_tokens = [int(index) for index in FLAGS.special_tokens]
+  # This is to de-deduplicate any possible copies.
+  special_tokens = ({FLAGS.padding_index,
+                     FLAGS.oov_index}.union(command_line_special_tokens))
+  special_tokens = list(special_tokens)
+
   optimizer = estimation.DiscreteZOO(sampling_strategy=sampling_strategy,
                                      embeddings=embeddings,
                                      adversarial_loss=adversarial_loss,
@@ -160,7 +170,8 @@ def main(argv):
                                      reduce_mean=FLAGS.reduce_mean,
                                      descent=True,
                                      norm_embeddings=FLAGS.normalize_embeddings,
-                                     vocab=vocab)
+                                     vocab=vocab,
+                                     special_tokens=special_tokens)
 
   with tf.io.gfile.GFile(FLAGS.output_file,
                          'w') as output_file, summary_writer.as_default():
