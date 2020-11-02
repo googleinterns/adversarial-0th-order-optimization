@@ -75,6 +75,9 @@ def loop(sentences: tf.Tensor,
     adversarial_sentences = estimation.DiscreteZOO.scatter_helper(
         adversarial_sentences, indices, replacement_tokens)
     finished_attacks = early_stopping_criterion(adversarial_sentences, labels)
+    # An attack isn't successful if it was already stopped.
+    finished_attacks = tf.logical_and(tf.logical_not(stopped_attacks),
+                                      finished_attacks)
     # An attack is only successful if it hasn't already reached the max changes.
     # This is to prevent a zeroed out sentence from being seen as successful.
     # If target_tokens is now equal to a value in per_sentence_tokens_to_change

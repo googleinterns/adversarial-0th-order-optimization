@@ -1,17 +1,23 @@
-import datetime
-import os
 import csv
+import datetime
+import itertools
+import os
 
 from absl import app
 from absl import flags
 from absl import logging
+import more_itertools
 from nltk.tokenize import treebank
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import tqdm
 
 from discretezoo import attack_setup
-from discretezoo.attack import importance, attack_loop, estimation, sampling
+from discretezoo import metrics
+from discretezoo.attack import importance
+from discretezoo.attack import attack_loop
+from discretezoo.attack import estimation
+from discretezoo.attack import sampling
 from discretezoo.loss import semantic_similarity
 
 FLAGS = flags.FLAGS
@@ -105,6 +111,7 @@ flags.mark_flags_as_required(
 
 TSV_HEADER = [
     'true_label', 'predicted_label', 'label_flipped', 'query_count',
+    'changed_token_count', 'bleu_score', 'semantic_similarity',
     'original_sentence', 'adversarial_sentence'
 ]
 
@@ -205,9 +212,7 @@ def main(argv):
       decoded_text_batch = []
       for text in text_batch:
         decoded_text_batch.append([token.decode('utf-8') for token in text])
-      decoded_text_batch_strings = [
-          ' '.join(tokens) for tokens in decoded_text_batch
-      ]
+
       # Log original tokenized texts.
       logging.debug("Original sentences: \n%s", decoded_text_batch)
       # Pre-process the batch of sentences into a numerical tensor.
@@ -238,10 +243,34 @@ def main(argv):
           early_stopping_criterion=early_stopping_criterion,
           iterations_per_token=FLAGS.changes_per_token,
           max_changes=FLAGS.token_changes_per_sentence)
-      # Post-process the adversarial sentences back into detokenized text.
-      adversarial_sentences_strings = attack_setup.tensor_to_strings(
-          adversarial_sentences, vocab, detokenizer.detokenize,
-          FLAGS.padding_index)
+      # Post-process the adversarial sentences back into strings.
+      adversarial_sentences_list = adversarial_sentences.numpy().tolist()
+      adversarial_sentences_list = [
+          more_itertools.rstrip(tokens,
+                                lambda token: token == FLAGS.padding_index)
+          for tokens in adversarial_sentences_list
+      ]
+      adversarial_sentences_tokens = []
+
+      for sentence in adversarial_sentences_list:
+        sentence_tokens = [vocab[index] for index in sentence]
+        adversarial_sentences_tokens.append(sentence_tokens)
+
+      original_sentence_strings = [
+          ' '.join(tokens) for tokens in decoded_text_batch
+      ]
+      adversarial_sentence_strings = [
+          ' '.join(tokens) for tokens in adversarial_sentences_tokens
+      ]
+
+      changed_token_counts = metrics.changed_token_count(
+          decoded_text_batch, adversarial_sentences_tokens)
+      bleu_scores = metrics.sentence_bleu_scores(original_sentence_strings,
+                                                 adversarial_sentence_strings)
+      semantic_differences = (tf.reshape(
+          distance_fun(tensor_batch, adversarial_sentences),
+          -1).numpy().tolist())
+
       is_padding = adversarial_sentences == FLAGS.padding_index
       padding_per_sentence = tf.reduce_sum(tf.cast(is_padding, tf.int32),
                                            axis=-1)
@@ -249,10 +278,12 @@ def main(argv):
       # scoring for padding tokens.
       query_count = model_fun.query_count - padding_per_sentence
       query_count = query_count.numpy().tolist()
+      is_finished_attacks = tf.reshape(is_finished_attacks, -1).numpy().tolist()
       tsv_data = zip(original_labels.numpy().tolist(),
                      model_predicted_labels.numpy().tolist(),
-                     is_finished_attacks.numpy().tolist(), query_count,
-                     decoded_text_batch_strings, adversarial_sentences_strings)
+                     is_finished_attacks, query_count, changed_token_counts,
+                     bleu_scores, semantic_differences,
+                     original_sentence_strings, adversarial_sentence_strings)
       tsv_output.writerows(tsv_data)
 
       total_successes += tf.reduce_sum(tf.cast(is_finished_attacks,

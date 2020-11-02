@@ -4,6 +4,7 @@ import itertools
 from operator import itemgetter
 from typing import Callable, Tuple, Dict, List
 
+import more_itertools
 import numpy as np
 from nltk import tokenize
 import pandas as pd
@@ -371,11 +372,14 @@ def tensor_to_strings(numeric_tensor: tf.Tensor,
     A list of detokenized sentences.
   """
   numeric_batch = numeric_tensor.numpy().tolist()
-  token_batch = []
-  for example in numeric_batch:
-    while example and example[-1] == padding_index:
-      example.pop()
-    token_batch.append([vocab[index] for index in example])
+  padding_stripped_batch = [
+      more_itertools.rstrip(token_ids,
+                            lambda token_id: token_id == padding_index)
+      for token_ids in numeric_batch
+  ]
 
+  token_batch = []
+  for example in padding_stripped_batch:
+    token_batch.append([vocab[index] for index in example])
   sentences = [detokenizer(sentence) for sentence in token_batch]
   return sentences

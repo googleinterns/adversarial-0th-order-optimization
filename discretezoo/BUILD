@@ -11,8 +11,14 @@ py_binary(
     "//discretezoo/attack:importance",
     "//discretezoo/attack:sampling",
     "//discretezoo/loss:adversarial_hinge",
-    "//discretezoo/loss:semantic_similarity", ":attack_setup"\
+    "//discretezoo/loss:semantic_similarity", ":attack_setup", ":metrics"
   ]
+)
+
+py_library(
+  name = "metrics",
+  srcs = ["metrics.py"],
+  srcs_version = "PY3"
 )
 
 py_library(
