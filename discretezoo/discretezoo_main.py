@@ -67,6 +67,14 @@ flags.DEFINE_list(
     'special_tokens', [],
     'The index of vocabulary items that should not be generated. '
     'Must be integers.')
+flags.DEFINE_bool(
+    'discretize_by_cosine', False,
+    'This controls whether the optimizer uses the maximum inner product or '
+    'maximum cosine similarity for discretization.')
+flags.DEFINE_bool(
+    'add_displacement_to_embedding', False,
+    'This controls if we directly multiply the displacement with the '
+    'embeddings or if we add it to the original embedding first.')
 # Attack settings.
 flags.DEFINE_string(
     'dataset', None,
@@ -122,7 +130,6 @@ def main(argv):
   logging.get_absl_handler().use_absl_log_file()
   if FLAGS.tensorboard_profiling_dir is not None:
     tf.profiler.experimental.start(FLAGS.tensorboard_profiling_dir)
-
   logging.info('Writing output to: %s', FLAGS.output_file)
 
   detokenizer = treebank.TreebankWordDetokenizer()
@@ -182,15 +189,18 @@ def main(argv):
                      FLAGS.oov_index}.union(command_line_special_tokens))
   special_tokens = list(special_tokens)
 
-  optimizer = estimation.DiscreteZOO(sampling_strategy=sampling_strategy,
-                                     embeddings=embeddings,
-                                     adversarial_loss=adversarial_loss,
-                                     num_to_sample=FLAGS.num_to_sample,
-                                     reduce_mean=FLAGS.reduce_mean,
-                                     descent=True,
-                                     norm_embeddings=FLAGS.normalize_embeddings,
-                                     vocab=vocab,
-                                     special_tokens=special_tokens)
+  optimizer = estimation.DiscreteZOO(
+      sampling_strategy=sampling_strategy,
+      embeddings=embeddings,
+      adversarial_loss=adversarial_loss,
+      num_to_sample=FLAGS.num_to_sample,
+      reduce_mean=FLAGS.reduce_mean,
+      descent=True,
+      norm_embeddings=FLAGS.normalize_embeddings,
+      vocab=vocab,
+      special_tokens=special_tokens,
+      discretize_by_cosine=FLAGS.discretize_by_cosine,
+      add_displacement_to_embedding=FLAGS.add_displacement_to_embedding)
 
   with tf.io.gfile.GFile(FLAGS.output_file,
                          'w') as output_file, summary_writer.as_default():
