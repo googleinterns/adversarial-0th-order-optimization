@@ -46,6 +46,7 @@ class DiscreteZOO:
                norm_embeddings: bool = False,
                vocab: List[str] = None,
                special_tokens: List[int] = None,
+               padding_index: int = 0,
                add_displacement_to_embedding: bool = False,
                discretize_by_cosine: bool = False):
     """Initializes DiscreteZOO with the information needed for our attack.
@@ -79,6 +80,7 @@ class DiscreteZOO:
     self._descent = descent
     self._norm_embeddings = norm_embeddings
     self._vocab = vocab
+    self._padding_index = padding_index
     if special_tokens is not None:
       special_token_booleans = [False] * len(vocab)
       for token in special_tokens:
@@ -355,11 +357,15 @@ class DiscreteZOO:
                                        batch_dims=1,
                                        axis=-1)
 
+    padding_locations = replacement_candidates == self._padding_index
+
     for _ in range(iterations):
       # [batch_size, num_to_sample].
       sampled_tokens = self._sampling_strategy(replacement_candidates,
                                                self._embeddings,
                                                self._num_to_sample)
+      sampled_tokens = tf.where(padding_locations, self._padding_index,
+                                sampled_tokens)
       # Update the sentences with the current replacement_candidates.
       sentences_with_replacements = self.scatter_helper(sentences, indices,
                                                         replacement_candidates)

@@ -198,6 +198,7 @@ def main(argv):
       descent=True,
       norm_embeddings=FLAGS.normalize_embeddings,
       vocab=vocab,
+      padding_index=FLAGS.padding_index,
       special_tokens=special_tokens,
       discretize_by_cosine=FLAGS.discretize_by_cosine,
       add_displacement_to_embedding=FLAGS.add_displacement_to_embedding)
