@@ -63,7 +63,8 @@ class EstimationTest(absltest.TestCase):
                                                adversarial_loss,
                                                num_to_sample=2,
                                                reduce_mean=False,
-                                               descent=False)
+                                               descent=False,
+                                               padding_index=8)
 
     replacement_token = test_discrete_zoo.replace_token(sentence,
                                                         original_sentence,
@@ -111,7 +112,8 @@ class EstimationTest(absltest.TestCase):
         reduce_mean=False,
         descent=False,
         add_displacement_to_embedding=True,
-        discretize_by_cosine=True)
+        discretize_by_cosine=True,
+        padding_index=8)
 
     replacement_token = test_discrete_zoo.replace_token(sentence,
                                                         original_sentence,
